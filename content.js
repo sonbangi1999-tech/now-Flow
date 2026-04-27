@@ -260,16 +260,93 @@ function initContentScript() {
     });
   }
 
-  /* ─── 이미지 다운로드 ────────────────────────────── */
+  /* ─── 이미지 다운로드 (403 에러 3중 폴백) ──────────
+   *  방법1: canvas.toBlob()  – 이미 렌더된 img 태그에서 픽셀 추출 (쿠키 불필요)
+   *  방법2: fetch + credentials:'include' – 세션 쿠키 포함
+   *  방법3: chrome.downloads.download(url) – 브라우저 세션 그대로 사용
+   * ─────────────────────────────────────────────── */
   async function downloadImage(imgSrc, filename, cfg) {
     if (!cfg.autoDownload) return;
-    const resp  = await fetch(imgSrc);
-    const buf   = await resp.arrayBuffer();
-    const bytes = Array.from(new Uint8Array(buf));
+
+    // ── 방법1: canvas.toBlob (이미 DOM에 로드된 이미지 재활용) ──
+    try {
+      const bytes = await imgToBytes(imgSrc);
+      if (bytes) {
+        chrome.runtime.sendMessage({
+          action: 'OFFSCREEN_DOWNLOAD',
+          bytes, filename, mimeType: 'image/png'
+        }).catch(() => {});
+        return;
+      }
+    } catch (e) {
+      console.warn('[nowFlow] canvas 추출 실패, fetch 시도:', e.message);
+    }
+
+    // ── 방법2: fetch + credentials:'include' ──
+    try {
+      const resp = await fetch(imgSrc, { credentials: 'include' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const buf   = await resp.arrayBuffer();
+      const bytes = Array.from(new Uint8Array(buf));
+      chrome.runtime.sendMessage({
+        action: 'OFFSCREEN_DOWNLOAD',
+        bytes, filename, mimeType: 'image/png'
+      }).catch(() => {});
+      return;
+    } catch (e) {
+      console.warn('[nowFlow] fetch 실패, 직접 다운로드 시도:', e.message);
+    }
+
+    // ── 방법3: chrome.downloads.download(url) 직접 ──
     chrome.runtime.sendMessage({
       action: 'OFFSCREEN_DOWNLOAD',
-      bytes, filename, mimeType: 'image/png'
+      url: imgSrc,
+      filename,
+      mimeType: 'image/png'
     }).catch(() => {});
+  }
+
+  /* ─── canvas로 img → bytes 변환 ─────────────────────
+   *  crossOrigin = 'anonymous' 시도 → 실패 시 DOM에 이미 있는
+   *  img 엘리먼트(이미 로드 완료)를 그대로 canvas에 그림
+   * ─────────────────────────────────────────────── */
+  function imgToBytes(src) {
+    return new Promise((resolve, reject) => {
+      // DOM에서 이미 로드된 img 재사용
+      const existing = Array.from(document.querySelectorAll('img[src]'))
+        .find(el => el.src === src && el.complete && el.naturalWidth > 0);
+
+      const draw = (imgEl) => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width  = imgEl.naturalWidth  || imgEl.width  || 512;
+          canvas.height = imgEl.naturalHeight || imgEl.height || 512;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(imgEl, 0, 0);
+          canvas.toBlob(blob => {
+            if (!blob) { reject(new Error('toBlob null')); return; }
+            const reader = new FileReader();
+            reader.onload = () => {
+              resolve(Array.from(new Uint8Array(reader.result)));
+            };
+            reader.onerror = () => reject(new Error('FileReader error'));
+            reader.readAsArrayBuffer(blob);
+          }, 'image/png');
+        } catch (e) {
+          reject(e);
+        }
+      };
+
+      if (existing) {
+        draw(existing);
+      } else {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload  = () => draw(img);
+        img.onerror = () => reject(new Error('img load error'));
+        img.src = src;
+      }
+    });
   }
 
   /* ─── 알림 헬퍼 ─────────────────────────────────── */

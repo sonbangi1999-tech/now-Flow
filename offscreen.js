@@ -12,7 +12,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg.bytes && Array.isArray(msg.bytes)) {
         blob = new Blob([new Uint8Array(msg.bytes)], { type: msg.mimeType || 'image/png' });
       } else if (msg.url) {
-        const resp = await fetch(msg.url);
+        // 방법1: fetch + credentials:'include' (세션 쿠키 포함 → 403 우회)
+        let resp = await fetch(msg.url, { credentials: 'include' }).catch(() => null);
+        if (!resp || !resp.ok) {
+          // 방법2: chrome.downloads 직접 (브라우저 세션 그대로 사용)
+          const directId = await new Promise((resolve, reject) => {
+            chrome.downloads.download(
+              { url: msg.url, filename: msg.filename || `nowflow_${Date.now()}.png`,
+                saveAs: false, conflictAction: 'uniquify' },
+              (id) => {
+                if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+                else resolve(id);
+              }
+            );
+          });
+          await waitForDownload(directId);
+          chrome.runtime.sendMessage({
+            action: 'SAVE_RESULT', success: true,
+            filename: msg.filename || '', downloadId: directId
+          }).catch(() => {});
+          sendResponse({ ok: true, filename: msg.filename });
+          return;
+        }
         blob = await resp.blob();
       } else {
         throw new Error('bytes 또는 url 이 없습니다');
