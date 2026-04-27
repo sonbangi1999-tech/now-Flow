@@ -1,91 +1,123 @@
-// offscreen.js – now Flow v8.0  Offscreen Document
-// Blob 다운로드 처리 (click-free automatic save)
-// FIX-403: fetch+credentials → chrome.downloads 직접 폴백
+// now Flow v8.0 - offscreen.js
+// Blob 다운로드 처리 (Fix403: credentials 포함 + 직접 다운로드 폴백)
 
-'use strict';
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  const action = msg.action || msg.type;
+  if (action !== 'OFFSCREEN_DOWNLOAD' && action !== 'offscreen_download') return false;
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.action !== 'OFFSCREEN_DOWNLOAD' && msg.action !== 'offscreen_download') return;
-
-  (async () => {
-    try {
-      let blob;
-      const filename = msg.filename || `nowflow_${Date.now()}.png`;
-
-      if (msg.bytes && Array.isArray(msg.bytes)) {
-        // content.js 에서 이미 bytes로 변환해서 전달한 경우
-        blob = new Blob([new Uint8Array(msg.bytes)], { type: msg.mimeType || 'image/png' });
-
-      } else if (msg.url) {
-        // FIX-403: fetch + credentials:'include' 우선 시도
-        let resp = null;
-        try {
-          resp = await fetch(msg.url, { credentials: 'include' });
-        } catch (_) { resp = null; }
-
-        if (resp && resp.ok) {
-          blob = await resp.blob();
-        } else {
-          // 폴백: chrome.downloads.download 직접 사용 (브라우저 세션 활용)
-          const directId = await new Promise((resolve, reject) => {
-            chrome.downloads.download(
-              { url: msg.url, filename, saveAs: false, conflictAction: 'uniquify' },
-              (id) => {
-                if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-                else resolve(id);
-              }
-            );
-          });
-          await waitForDownload(directId);
-          chrome.runtime.sendMessage({ action: 'SAVE_RESULT', success: true, filename, downloadId: directId }).catch(() => {});
-          sendResponse({ ok: true, filename });
-          return;
-        }
-      } else {
-        throw new Error('bytes 또는 url 이 없습니다');
-      }
-
-      // Blob → objectURL → chrome.downloads
-      const objUrl = URL.createObjectURL(blob);
-      const downloadId = await new Promise((resolve, reject) => {
-        chrome.downloads.download(
-          { url: objUrl, filename, saveAs: false, conflictAction: 'uniquify' },
-          (id) => {
-            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-            else resolve(id);
-          }
-        );
-      });
-
-      await waitForDownload(downloadId);
-      URL.revokeObjectURL(objUrl);
-
-      chrome.runtime.sendMessage({ action: 'SAVE_RESULT', success: true, filename, downloadId }).catch(() => {});
-      sendResponse({ ok: true, filename });
-
-    } catch (e) {
-      console.error('[nowFlow offscreen] download error:', e);
-      chrome.runtime.sendMessage({ action: 'SAVE_RESULT', success: false, error: e.message, filename: msg.filename || '' }).catch(() => {});
-      sendResponse({ ok: false, error: e.message });
-    }
-  })();
+  handleDownload(msg).then(result => {
+    chrome.runtime.sendMessage({
+      action: 'SAVE_RESULT',
+      ok: result.ok,
+      filename: result.filename,
+      error: result.error || null,
+      dotId: msg.dotId || null,
+      sceneIndex: msg.sceneIndex != null ? msg.sceneIndex : null
+    }).catch(() => {});
+    sendResponse(result);
+  }).catch(e => {
+    chrome.runtime.sendMessage({
+      action: 'SAVE_RESULT',
+      ok: false,
+      error: e.message,
+      dotId: msg.dotId || null
+    }).catch(() => {});
+    sendResponse({ ok: false, error: e.message });
+  });
 
   return true;
 });
 
-function waitForDownload(downloadId, timeout = 60000) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, timeout);
-    const listener = (delta) => {
-      if (delta.id !== downloadId) return;
-      if (delta.state && (delta.state.current === 'complete' || delta.state.current === 'interrupted')) {
-        clearTimeout(timer);
-        chrome.downloads.onChanged.removeListener(listener);
-        resolve(delta.state.current);
+async function handleDownload(msg) {
+  const filename = sanitizeFilename(msg.filename || `nowflow_${Date.now()}.png`);
+
+  // 방법1: bytes 배열로 Blob 생성
+  if (msg.bytes && msg.bytes.length > 0) {
+    try {
+      const blob = new Blob([new Uint8Array(msg.bytes)], { type: 'image/png' });
+      const url = URL.createObjectURL(blob);
+      const dlId = await startDownload(url, filename);
+      await waitForDownload(dlId);
+      URL.revokeObjectURL(url);
+      return { ok: true, filename };
+    } catch (e) {
+      console.warn('[nowFlow offscreen] bytes download failed:', e.message);
+    }
+  }
+
+  // 방법2: URL fetch with credentials
+  if (msg.url) {
+    try {
+      const res = await fetch(msg.url, { credentials: 'include', cache: 'no-store' });
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        const blob = new Blob([buf], { type: 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const dlId = await startDownload(url, filename);
+        await waitForDownload(dlId);
+        URL.revokeObjectURL(url);
+        return { ok: true, filename };
       }
-    };
+    } catch (e) {
+      console.warn('[nowFlow offscreen] fetch download failed:', e.message);
+    }
+
+    // 방법3: chrome.downloads 직접 (브라우저 세션 활용)
+    try {
+      const dlId = await startDownload(msg.url, filename);
+      await waitForDownload(dlId);
+      return { ok: true, filename };
+    } catch (e) {
+      console.error('[nowFlow offscreen] direct download failed:', e.message);
+      throw e;
+    }
+  }
+
+  throw new Error('No bytes or URL provided');
+}
+
+function startDownload(url, filename) {
+  return new Promise((resolve, reject) => {
+    chrome.downloads.download(
+      { url, filename, conflictAction: 'uniquify', saveAs: false },
+      dlId => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve(dlId);
+        }
+      }
+    );
+  });
+}
+
+function waitForDownload(dlId) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      chrome.downloads.onChanged.removeListener(listener);
+      resolve(); // timeout 시 그냥 진행
+    }, 30000);
+
+    function listener(delta) {
+      if (delta.id !== dlId) return;
+      if (delta.state) {
+        if (delta.state.current === 'complete') {
+          clearTimeout(timeout);
+          chrome.downloads.onChanged.removeListener(listener);
+          resolve();
+        } else if (delta.state.current === 'interrupted') {
+          clearTimeout(timeout);
+          chrome.downloads.onChanged.removeListener(listener);
+          reject(new Error('Download interrupted'));
+        }
+      }
+    }
+
     chrome.downloads.onChanged.addListener(listener);
   });
 }
 
-console.log('[nowFlow offscreen] ready v8.0');
+function sanitizeFilename(name) {
+  // 폴더 구분자는 유지, 나머지 특수문자만 제거
+  return name.replace(/[<>:"|?*]/g, '_');
+}

@@ -3,275 +3,369 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>now Flow</title>
+<title>now Flow v8.0</title>
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-/* Fix7: body 100vh, overflow hidden */
-body {
-  height: 100vh; margin: 0;
-  display: flex; flex-direction: column;
-  background: #1a1b2e; color: #e2e8f0;
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  font-size: 13px; overflow: hidden;
+/* Fix8: 전체 레이아웃 100vh */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100vh;
+  font-family: 'Segoe UI', sans-serif;
+  background: #0f0f0f; color: #e0e0e0;
+  overflow: hidden;
 }
 
 /* 상태바 */
 #status-bar {
-  background: #0f1020; padding: 4px 10px;
-  font-size: 11px; display: flex; align-items: center; gap: 6px;
-  border-bottom: 1px solid #2d2e4a; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 12px; background: #1a1a1a; border-bottom: 1px solid #333;
+  font-size: 11px; color: #aaa;
 }
-#status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; transition: background .3s; }
-#status-dot.connected { background: #22c55e; }
-#status-text { color: #94a3b8; }
+#status-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; margin-right: 6px; display: inline-block; }
+#status-dot.connected { background: #4caf50; }
+#status-dot.running { background: #ff9800; animation: blink 1s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
 /* 헤더 */
-header {
-  background: #0f1020; padding: 8px 10px;
-  display: flex; align-items: center; justify-content: space-between;
-  border-bottom: 1px solid #2d2e4a; flex-shrink: 0;
+#header {
+  padding: 10px 14px 6px;
+  background: linear-gradient(135deg, #1e1e2e, #2a1a3e);
+  border-bottom: 1px solid #333;
 }
-header h1 { font-size: 15px; color: #22c55e; font-weight: 700; }
-#counter { font-size: 11px; color: #64748b; }
+#header h1 { font-size: 16px; font-weight: 700; color: #a78bfa; }
+#header p  { font-size: 11px; color: #888; margin-top: 2px; }
 
-/* 탭 바 */
-.tab-bar {
-  display: flex; background: #0f1020;
-  border-bottom: 1px solid #2d2e4a; flex-shrink: 0;
+/* 탭바 */
+#tab-bar {
+  display: flex; background: #1a1a1a; border-bottom: 1px solid #333;
+  overflow-x: auto;
 }
-.tab {
-  flex: 1; padding: 7px 2px; text-align: center;
-  cursor: pointer; font-size: 11px; color: #64748b;
-  border-bottom: 2px solid transparent; transition: color .2s, border-color .2s; user-select: none;
+.tab-btn {
+  flex: 1; padding: 8px 4px; font-size: 11px; background: none;
+  border: none; color: #888; cursor: pointer; white-space: nowrap;
+  border-bottom: 2px solid transparent; transition: all .2s;
 }
-.tab.active { color: #22c55e; border-bottom-color: #22c55e; }
-.tab:hover  { color: #a3e635; }
+.tab-btn.active { color: #a78bfa; border-bottom-color: #a78bfa; }
+.tab-btn:hover { color: #ccc; }
 
-/* 탭 콘텐츠 */
-.tab-content { display: none; flex: 1; overflow-y: auto; padding: 10px; flex-direction: column; gap: 8px; }
-.tab-content.active { display: flex; }
+/* 탭 패널 */
+.tab-panel { display: none; height: calc(100vh - 130px); overflow-y: auto; padding: 10px 12px; }
+.tab-panel.active { display: block; }
 
-/* 공통 */
-.section-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
-.btn { padding: 6px 10px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600; transition: opacity .2s; }
-.btn:hover  { opacity: .85; }
-.btn:active { opacity: .7; }
-.btn:disabled { opacity: .4; cursor: not-allowed; }
-.btn-primary   { background: #22c55e; color: #000; }
-.btn-secondary { background: #2d2e4a; color: #e2e8f0; }
-.btn-danger    { background: #ef4444; color: #fff; }
-.btn-outline   { background: transparent; border: 1px solid #2d2e4a; color: #94a3b8; }
-.btn-blue      { background: #1d4ed8; color: #fff; }
-.btn-row { display: flex; gap: 6px; }
+/* 공통 섹션 */
+.section { margin-bottom: 14px; }
+.section-title { font-size: 11px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
 
-/* 프롬프트 */
-textarea#prompt-input {
-  width: 100%; min-height: 130px;
-  background: #0f1020; border: 1px solid #2d2e4a; border-radius: 6px;
-  color: #e2e8f0; font-size: 12px; padding: 8px; resize: vertical; font-family: inherit;
+/* 프롬프트 textarea */
+#prompt-input {
+  width: 100%; height: 100px; background: #1e1e1e; border: 1px solid #444;
+  color: #e0e0e0; border-radius: 6px; padding: 8px; font-size: 12px;
+  resize: vertical; font-family: inherit;
 }
-textarea#prompt-input:focus { outline: none; border-color: #22c55e; }
-
-/* 캐릭터 패널 */
-#char-list { display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; }
-.char-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: #0f1020; border-radius: 4px; }
-.char-item span { flex: 1; font-size: 12px; }
-.char-item button { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; }
-#char-input-row { display: flex; gap: 6px; margin-top: 4px; }
-#char-name-input {
-  flex: 1; background: #0f1020; border: 1px solid #2d2e4a; border-radius: 4px;
-  color: #e2e8f0; padding: 5px 8px; font-size: 12px;
-}
-#char-name-input:focus { outline: none; border-color: #22c55e; }
+#prompt-input:focus { outline: none; border-color: #a78bfa; }
 
 /* 씬 카드 */
-.scene-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-#scene-list { display: flex; flex-direction: column; gap: 6px; }
-.scene-card { background: #0f1020; border: 1px solid #2d2e4a; border-radius: 6px; padding: 8px; transition: border-color .3s; }
-.scene-card.active-scene { border-color: #22c55e; box-shadow: 0 0 6px #22c55e44; }
-.scene-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.scene-no { font-size: 11px; font-weight: 700; color: #22c55e; }
-.scene-dots { display: flex; gap: 4px; flex-wrap: wrap; }
+.scene-card {
+  background: #1e1e2e; border: 1px solid #333; border-radius: 8px;
+  padding: 10px; margin-bottom: 8px; cursor: pointer; transition: all .2s;
+}
+.scene-card:hover { border-color: #a78bfa; }
+.scene-card.active { border-color: #a78bfa; background: #251e3e; }
+.scene-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.scene-name { font-size: 12px; font-weight: 600; color: #c4b5fd; }
+.scene-status { font-size: 10px; color: #666; }
 
-/* Fix3: dot */
-.sdot { width: 10px; height: 10px; border-radius: 50%; background: #2d2e4a; transition: background .3s; cursor: default; }
-.sdot.working { background: #f59e0b; animation: pulse 1s infinite; }
-.sdot.done    { background: #22c55e; }
-.sdot.error   { background: #ef4444; }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+/* Fix3: dot UI */
+.dot-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.dot {
+  width: 10px; height: 10px; border-radius: 50%; background: #333;
+  transition: background .3s; cursor: default;
+}
+.dot[title] { cursor: help; }
+.dot.pending  { background: #444; }
+.dot.running  { background: #ff9800; animation: blink 1s infinite; }
+.dot.done     { background: #4caf50; }
+.dot.error    { background: #f44336; }
+.dot.char     { border: 1px solid #a78bfa; }
+.dot.bg       { border: 1px solid #64b5f6; }
+.dot.full     { border: 1px solid #81c784; }
 
-.scene-prompt { font-size: 11px; color: #64748b; white-space: pre-wrap; word-break: break-all; max-height: 50px; overflow: hidden; }
-.scene-chars  { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.char-tag { display: flex; align-items: center; gap: 3px; background: #1e2a3a; border-radius: 3px; padding: 2px 5px; font-size: 10px; }
-.char-tag input[type="checkbox"] { accent-color: #22c55e; }
+/* 캐릭터 입력 */
+.char-row { display: flex; gap: 6px; margin-bottom: 6px; }
+#char-input {
+  flex: 1; background: #1e1e1e; border: 1px solid #444; color: #e0e0e0;
+  border-radius: 6px; padding: 6px 8px; font-size: 12px;
+}
+.char-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #2a1a3e; border: 1px solid #a78bfa; border-radius: 12px;
+  padding: 2px 8px; font-size: 11px; color: #c4b5fd; margin: 2px;
+}
+.char-tag .remove { cursor: pointer; color: #888; font-size: 10px; }
+.char-tag .remove:hover { color: #f44336; }
 
-/* 진행률 */
-#progress-section { padding: 8px 10px; border-top: 1px solid #2d2e4a; flex-shrink: 0; }
-#progress-bar-wrap { background: #2d2e4a; border-radius: 4px; height: 6px; overflow: hidden; }
-#progress-bar { height: 100%; background: #22c55e; width: 0%; transition: width .4s; }
-#progress-text { font-size: 11px; color: #64748b; margin-top: 3px; }
-
-/* Fix6: 가로 4버튼 레이아웃 */
+/* Fix7: 컨트롤 버튼 가로 배열 */
 .ctrl-btns {
-  display: flex; flex-direction: row; gap: 6px;
-  padding: 8px 10px; border-top: 1px solid #2d2e4a; flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  position: sticky;
+  bottom: 0;
 }
-.ctrl-btns .btn { flex: 1; }
+.ctrl-btn {
+  flex: 1; padding: 9px 4px; border: none; border-radius: 8px;
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: all .2s;
+}
+#btn-start  { background: #a78bfa; color: #fff; }
+#btn-start:hover { background: #8b5cf6; }
+#btn-pause  { background: #2a2a3e; color: #a78bfa; border: 1px solid #a78bfa; }
+#btn-stop   { background: #2a1a1a; color: #f87171; border: 1px solid #f87171; }
+#btn-reset  { background: #1a2a1a; color: #86efac; border: 1px solid #86efac; }
+.ctrl-btn:disabled { opacity: .4; cursor: not-allowed; }
 
-/* 설정 */
-.setting-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #1e2030; }
-.setting-row label { color: #94a3b8; font-size: 12px; }
-.setting-row select, .setting-row input[type="number"], .setting-row input[type="text"] {
-  background: #0f1020; border: 1px solid #2d2e4a; border-radius: 4px;
-  color: #e2e8f0; padding: 4px 6px; font-size: 12px; width: 120px;
+/* 프로그레스 바 */
+#progress-wrap { padding: 6px 12px; background: #1a1a1a; }
+#progress-bar-bg {
+  width: 100%; height: 6px; background: #333; border-radius: 3px; overflow: hidden;
 }
-.toggle-wrap { display: flex; align-items: center; gap: 6px; }
-.toggle { width: 32px; height: 18px; background: #2d2e4a; border-radius: 9px; position: relative; cursor: pointer; transition: background .2s; }
-.toggle.on { background: #22c55e; }
-.toggle::after { content: ''; position: absolute; width: 14px; height: 14px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: left .2s; }
-.toggle.on::after { left: 16px; }
+#progress-bar { height: 100%; background: #a78bfa; border-radius: 3px; width: 0%; transition: width .3s; }
+#progress-text { font-size: 10px; color: #888; text-align: right; margin-top: 2px; }
+
+/* 설정 항목 */
+.setting-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.setting-label { font-size: 12px; color: #ccc; }
+.setting-control { flex: 0 0 auto; }
+.setting-control input[type="text"],
+.setting-control input[type="number"],
+.setting-control select {
+  background: #1e1e1e; border: 1px solid #444; color: #e0e0e0;
+  border-radius: 6px; padding: 4px 8px; font-size: 12px; width: 120px;
+}
+.setting-control input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
 
 /* 로그 */
-#log-area { background: #0f1020; border-radius: 6px; padding: 8px; font-size: 11px; font-family: monospace; overflow-y: auto; flex: 1; min-height: 200px; color: #94a3b8; }
-.log-entry { padding: 2px 0; border-bottom: 1px solid #1a1b2e; }
-.log-entry.error   { color: #ef4444; }
-.log-entry.success { color: #22c55e; }
-.log-entry.info    { color: #60a5fa; }
+#log-area {
+  font-family: monospace; font-size: 11px; color: #aaa;
+  background: #111; padding: 8px; border-radius: 6px;
+  height: 200px; overflow-y: auto;
+}
+.log-line { padding: 1px 0; }
+.log-line.error { color: #f87171; }
+.log-line.success { color: #86efac; }
+.log-line.info { color: #93c5fd; }
 
 /* 체크리스트 */
-#checklist-area { background: #0f1020; border-radius: 6px; padding: 8px; font-size: 11px; font-family: monospace; overflow-y: auto; flex: 1; }
-.check-item { display: flex; align-items: flex-start; gap: 6px; padding: 3px 0; border-bottom: 1px solid #1a1b2e; }
-.check-ok   { color: #22c55e; flex-shrink: 0; }
-.check-fail { color: #ef4444; flex-shrink: 0; }
-.check-desc { color: #94a3b8; font-size: 11px; }
+.check-item {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid #222; font-size: 11px;
+}
+.check-item .ci-icon { font-size: 13px; flex-shrink: 0; }
+.check-item.pass .ci-icon::before { content: '✅'; }
+.check-item.fail .ci-icon::before { content: '❌'; }
+.check-item.pending-check .ci-icon::before { content: '⏳'; }
+.check-item .ci-text { color: #ccc; }
+.check-item.pass .ci-text { color: #86efac; }
+.check-item.fail .ci-text { color: #f87171; }
+
+/* CSV 버튼 */
+#btn-csv {
+  width: 100%; padding: 8px; background: #1a2a1a; border: 1px solid #86efac;
+  border-radius: 8px; color: #86efac; font-size: 12px; cursor: pointer;
+  margin-top: 8px; transition: all .2s;
+}
+#btn-csv:hover { background: #223322; }
 
 /* 스크롤바 */
 ::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: #0f1020; }
-::-webkit-scrollbar-thumb { background: #2d2e4a; border-radius: 2px; }
+::-webkit-scrollbar-track { background: #111; }
+::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
 </style>
 </head>
 <body>
 
 <!-- 상태바 -->
 <div id="status-bar">
-  <div id="status-dot"></div>
-  <span id="status-text">연결 대기중…</span>
+  <div style="display:flex;align-items:center">
+    <span id="status-dot"></span>
+    <span id="status-text">연결 대기 중...</span>
+  </div>
+  <span id="status-count">0 / 0</span>
 </div>
 
 <!-- 헤더 -->
-<header>
-  <h1>🌊 now Flow</h1>
-  <span id="counter">0 씬</span>
-</header>
-
-<!-- 탭 바 -->
-<div class="tab-bar">
-  <div class="tab active" data-tab="prompt">📝 프롬프트</div>
-  <div class="tab" data-tab="scenes">🎬 씬</div>
-  <div class="tab" data-tab="settings">⚙️ 설정</div>
-  <div class="tab" data-tab="log">📋 로그</div>
-  <div class="tab" data-tab="info">✅ 체크</div>
+<div id="header">
+  <h1>⚡ now Flow</h1>
+  <p>Google Flow AI 이미지 자동 저장 v8.0</p>
 </div>
 
-<!-- ══ 프롬프트 탭 ══ -->
-<div class="tab-content active" id="tab-prompt">
-  <div>
-    <div class="section-label">씬 프롬프트 입력</div>
-    <textarea id="prompt-input"
-      placeholder="씬1&#10;프롬프트: 숲속 아침, 마법의 숲&#10;등장인물: [엘리], [아론]&#10;&#10;씬2&#10;프롬프트: 낡은 성 복도, 촛불&#10;등장인물: [아론]"></textarea>
+<!-- 탭바 -->
+<div id="tab-bar">
+  <button class="tab-btn active" data-tab="prompt">📝 프롬프트</button>
+  <button class="tab-btn" data-tab="scenes">🎬 씬</button>
+  <button class="tab-btn" data-tab="settings">⚙️ 설정</button>
+  <button class="tab-btn" data-tab="log">📋 로그</button>
+  <button class="tab-btn" data-tab="checklist">✅ 체크</button>
+</div>
+
+<!-- 프로그레스 바 -->
+<div id="progress-wrap">
+  <div id="progress-bar-bg"><div id="progress-bar"></div></div>
+  <div id="progress-text">0 / 0 에셋</div>
+</div>
+
+<!-- ── 탭: 프롬프트 ─────────────────────────────── -->
+<div class="tab-panel active" id="tab-prompt">
+  <div class="section">
+    <div class="section-title">씬 프롬프트 입력</div>
+    <textarea id="prompt-input" placeholder="씬 프롬프트를 입력하세요...&#10;여러 씬은 '씬1:', '씬2:' 또는 번호로 구분&#10;&#10;예시:&#10;씬1: 프롬프트: 엘리와 제이가 공원에서 만나는 장면&#10;씬2: 프롬프트: 실험실 내부, 네온 조명"></textarea>
   </div>
-  <div class="btn-row">
-    <button class="btn btn-primary"   id="btn-load"  style="flex:1">📂 씬 파싱</button>
-    <button class="btn btn-secondary" id="btn-clear" style="flex:1">🗑 초기화</button>
+
+  <div class="section">
+    <div class="section-title">등록 캐릭터</div>
+    <div class="char-row">
+      <input id="char-input" type="text" placeholder="캐릭터 이름 입력 후 Enter">
+      <button class="ctrl-btn" id="btn-add-char" style="flex:0 0 auto;padding:6px 12px;background:#2a1a3e;border:1px solid #a78bfa;color:#c4b5fd;border-radius:6px;font-size:12px;">추가</button>
+    </div>
+    <div id="char-tags"></div>
   </div>
-  <div>
-    <div class="section-label">등록 캐릭터</div>
-    <div id="char-list"></div>
-    <div id="char-input-row">
-      <input id="char-name-input" type="text" placeholder="캐릭터 이름 입력">
-      <button class="btn btn-primary" id="btn-add-char" style="padding:5px 12px;">＋</button>
+
+  <div class="section">
+    <button id="btn-parse" style="width:100%;padding:8px;background:#1e1a2e;border:1px solid #a78bfa;border-radius:8px;color:#c4b5fd;font-size:12px;cursor:pointer;">
+      🔍 씬 파싱 &amp; 캐릭터 자동 배정
+    </button>
+  </div>
+
+  <div class="section" id="scene-preview-section" style="display:none">
+    <div class="section-title">파싱된 씬 미리보기</div>
+    <div id="scene-preview"></div>
+  </div>
+
+  <button id="btn-csv">📊 CSV 내보내기</button>
+</div>
+
+<!-- ── 탭: 씬 ──────────────────────────────────── -->
+<div class="tab-panel" id="tab-scenes">
+  <div class="section">
+    <div class="section-title">씬 목록 <span id="scene-count" style="color:#a78bfa"></span></div>
+    <div id="scene-list"></div>
+  </div>
+</div>
+
+<!-- ── 탭: 설정 ────────────────────────────────── -->
+<div class="tab-panel" id="tab-settings">
+  <div class="section">
+    <div class="section-title">생성 설정</div>
+    <div class="setting-row">
+      <span class="setting-label">모델</span>
+      <div class="setting-control">
+        <select id="set-model">
+          <option value="imagen-3">Imagen 3</option>
+          <option value="imagen-3-fast">Imagen 3 Fast</option>
+          <option value="flow-1">Flow 1</option>
+        </select>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">비율</span>
+      <div class="setting-control">
+        <select id="set-ratio">
+          <option value="16:9">16:9</option>
+          <option value="9:16">9:16</option>
+          <option value="1:1">1:1</option>
+          <option value="4:3">4:3</option>
+        </select>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">생성 수</span>
+      <div class="setting-control">
+        <input type="number" id="set-count" value="1" min="1" max="4" style="width:60px">
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">동시 처리</span>
+      <div class="setting-control">
+        <input type="number" id="set-concurrency" value="1" min="1" max="3" style="width:60px">
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">재시도 횟수</span>
+      <div class="setting-control">
+        <input type="number" id="set-retries" value="2" min="0" max="5" style="width:60px">
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">대기 시간(ms)</span>
+      <div class="setting-control">
+        <input type="number" id="set-delay" value="3000" min="1000" max="15000" style="width:80px">
+      </div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">저장 설정</div>
+    <div class="setting-row">
+      <span class="setting-label">자동 다운로드</span>
+      <div class="setting-control">
+        <input type="checkbox" id="set-auto-download" checked>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">파일 접두사</span>
+      <div class="setting-control">
+        <input type="text" id="set-prefix" value="TF_" style="width:80px">
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">폴더명</span>
+      <div class="setting-control">
+        <input type="text" id="set-folder" value="Google_Flow_Saved">
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">언어</span>
+      <div class="setting-control">
+        <select id="set-lang">
+          <option value="ko">한국어</option>
+          <option value="en">English</option>
+        </select>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ══ 씬 탭 ══ -->
-<div class="tab-content" id="tab-scenes">
-  <div class="scene-header">
-    <div class="section-label">씬 목록</div>
-    <div class="btn-row">
-      <button class="btn btn-outline" id="btn-sel-all"   style="padding:4px 8px;font-size:11px;">전체선택</button>
-      <button class="btn btn-outline" id="btn-desel-all" style="padding:4px 8px;font-size:11px;">전체해제</button>
+<!-- ── 탭: 로그 ────────────────────────────────── -->
+<div class="tab-panel" id="tab-log">
+  <div class="section">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div class="section-title" style="margin:0">실행 로그</div>
+      <button id="btn-clear-log" style="font-size:10px;background:#2a1a1a;border:1px solid #555;color:#aaa;border-radius:4px;padding:2px 8px;cursor:pointer;">지우기</button>
     </div>
-  </div>
-  <div id="scene-list"></div>
-  <button class="btn btn-blue" id="csv-btn" style="width:100%;margin-top:4px;">📊 CSV 내보내기</button>
-</div>
-
-<!-- ══ 설정 탭 ══ -->
-<div class="tab-content" id="tab-settings">
-  <div class="setting-row">
-    <label>모델</label>
-    <select id="setting-model">
-      <option value="imagen-3">Imagen 3</option>
-      <option value="imagen-3-fast">Imagen 3 Fast</option>
-    </select>
-  </div>
-  <div class="setting-row">
-    <label>비율</label>
-    <select id="setting-ratio">
-      <option value="16:9">16:9</option><option value="9:16">9:16</option>
-      <option value="1:1">1:1</option><option value="4:3">4:3</option>
-    </select>
-  </div>
-  <div class="setting-row"><label>생성 수</label><input type="number" id="setting-count" min="1" max="4" value="1"></div>
-  <div class="setting-row"><label>동시 실행</label><input type="number" id="setting-concurrency" min="1" max="5" value="1"></div>
-  <div class="setting-row"><label>재시도</label><input type="number" id="setting-retries" min="0" max="5" value="2"></div>
-  <div class="setting-row"><label>딜레이 (ms)</label><input type="number" id="setting-delay" min="500" max="10000" step="500" value="3000"></div>
-  <div class="setting-row">
-    <label>자동 다운로드</label>
-    <div class="toggle-wrap">
-      <div class="toggle on" id="toggle-autodl"></div>
-      <span id="toggle-autodl-text">ON</span>
-    </div>
-  </div>
-  <div class="setting-row"><label>파일명 접두사</label><input type="text" id="setting-prefix" value="TF_"></div>
-  <div class="setting-row"><label>저장 폴더</label><input type="text" id="setting-folder" value="Google_Flow_Saved"></div>
-  <div class="setting-row">
-    <label>언어</label>
-    <select id="setting-lang">
-      <option value="ko">한국어</option><option value="en">English</option>
-    </select>
+    <div id="log-area"></div>
   </div>
 </div>
 
-<!-- ══ 로그 탭 ══ -->
-<div class="tab-content" id="tab-log">
-  <div class="btn-row" style="flex-shrink:0;">
-    <button class="btn btn-outline" id="btn-clear-log" style="flex:1;">🗑 로그 지우기</button>
+<!-- ── 탭: 체크리스트 ─────────────────────────── -->
+<div class="tab-panel" id="tab-checklist">
+  <div class="section">
+    <div class="section-title">12가지 과제 검증</div>
+    <div id="checklist-area"></div>
+    <button id="btn-run-checklist" style="width:100%;margin-top:8px;padding:8px;background:#1e1a2e;border:1px solid #a78bfa;border-radius:8px;color:#c4b5fd;font-size:12px;cursor:pointer;">
+      🔍 체크리스트 실행
+    </button>
   </div>
-  <div id="log-area"></div>
 </div>
 
-<!-- ══ 체크리스트 탭 ══ -->
-<div class="tab-content" id="tab-info">
-  <div class="section-label" style="flex-shrink:0;">12가지 과제 체크리스트</div>
-  <div id="checklist-area">로딩 중…</div>
-</div>
-
-<!-- 진행률 -->
-<div id="progress-section">
-  <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
-  <div id="progress-text">준비됨</div>
-</div>
-
-<!-- Fix6: 가로 4버튼 -->
+<!-- ── 컨트롤 버튼 (Fix7: flex-row) ─────────────── -->
 <div class="ctrl-btns">
-  <button class="btn btn-primary"   id="btn-start">▶ 시작</button>
-  <button class="btn btn-secondary" id="btn-pause">⏸ 일시정지</button>
-  <button class="btn btn-danger"    id="btn-stop" >⏹ 중지</button>
-  <button class="btn btn-outline"   id="btn-reset">↺ 리셋</button>
+  <button class="ctrl-btn" id="btn-start">▶ 시작</button>
+  <button class="ctrl-btn" id="btn-pause" disabled>⏸ 일시정지</button>
+  <button class="ctrl-btn" id="btn-stop" disabled>⏹ 정지</button>
+  <button class="ctrl-btn" id="btn-reset">🔄 리셋</button>
 </div>
 
 <script src="sidepanel.js"></script>
