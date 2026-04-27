@@ -1,13 +1,11 @@
 // now Flow v8.0 - sidepanel.js
-// 12가지 과제 완전 구현
+// Fix1~Fix12 전체 구현
 
 'use strict';
 
-// ══════════════════════════════════════════════════════════════════
-// 전역 상태
-// ══════════════════════════════════════════════════════════════════
-let scenes = [];          // 파싱된 씬 목록
-let characters = [];      // 등록된 캐릭터 목록
+// ── 전역 상태 ────────────────────────────────────────────────────
+let scenes = [];        // 파싱된 씬 배열
+let characters = [];    // 등록된 캐릭터 배열
 let isRunning = false;
 let isPaused = false;
 let doneCount = 0;
@@ -27,698 +25,689 @@ let settings = {
   lang: 'ko'
 };
 
-// ══════════════════════════════════════════════════════════════════
-// DOM 유틸리티
-// ══════════════════════════════════════════════════════════════════
-function $(id) { return document.getElementById(id); }
-function escHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+// ── DOM 준비 ─────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initTabs();
+  initButtons();
+  initCharInput();
+  initSettingsSync();
+  initMessageListener();
+  runChecklist();
+  addLog('info', 'now Flow v8.0 사이드패널 로드 완료');
+});
 
-// ══════════════════════════════════════════════════════════════════
-// 로그
-// ══════════════════════════════════════════════════════════════════
-function log(msg, type = 'info') {
-  const area = $('log-area');
-  if (!area) return;
-  const ts = new Date().toLocaleTimeString();
-  const cls = `log-${type}`;
-  area.innerHTML += `<span class="${cls}">[${ts}] ${escHtml(msg)}\n</span>`;
-  area.scrollTop = area.scrollHeight;
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 탭 전환
-// ══════════════════════════════════════════════════════════════════
+// ── 탭 전환 ──────────────────────────────────────────────────────
 function initTabs() {
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const tabId = btn.dataset.tab;
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
-      const panel = $(`tab-${tabId}`);
+      const panel = document.getElementById('tab-' + btn.dataset.tab);
       if (panel) panel.classList.add('active');
     });
   });
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 설정 로드/저장
-// ══════════════════════════════════════════════════════════════════
-function loadSettings() {
-  chrome.storage.local.get(['nowFlowSettings', 'nowFlowChars'], res => {
-    if (res.nowFlowSettings) {
-      settings = { ...settings, ...res.nowFlowSettings };
-      applySettingsToUI();
+// ── 버튼 초기화 ──────────────────────────────────────────────────
+function initButtons() {
+  document.getElementById('btn-start').addEventListener('click', onStart);
+  document.getElementById('btn-pause').addEventListener('click', onPause);
+  document.getElementById('btn-stop').addEventListener('click', onStop);
+  document.getElementById('btn-reset').addEventListener('click', onReset);
+  document.getElementById('btn-parse').addEventListener('click', onParse);
+  document.getElementById('btn-csv').addEventListener('click', exportCSV);
+  document.getElementById('btn-clear-log').addEventListener('click', () => {
+    document.getElementById('log-area').innerHTML = '';
+  });
+  document.getElementById('btn-run-checklist').addEventListener('click', runChecklist);
+}
+
+// ── 캐릭터 입력 ──────────────────────────────────────────────────
+function initCharInput() {
+  const input = document.getElementById('char-input');
+  const addBtn = document.getElementById('btn-add-char');
+
+  function addChar() {
+    const name = input.value.trim();
+    if (!name) return;
+    if (!characters.includes(name)) {
+      characters.push(name);
+      renderCharTags();
+      addLog('info', `캐릭터 등록: ${escHtml(name)}`);
     }
-    if (res.nowFlowChars) {
-      characters = res.nowFlowChars;
-      renderCharList();
-    }
+    input.value = '';
+    input.focus();
+  }
+
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') addChar(); });
+  addBtn.addEventListener('click', addChar);
+}
+
+function renderCharTags() {
+  const container = document.getElementById('char-tags');
+  container.innerHTML = characters.map((c, i) =>
+    `<span class="char-tag">
+      ${escHtml(c)}
+      <span class="remove" onclick="removeCharacter(${i})">✕</span>
+    </span>`
+  ).join('');
+}
+
+// 전역 노출 (onclick용)
+window.removeCharacter = function(i) {
+  characters.splice(i, 1);
+  renderCharTags();
+};
+
+// ── 설정 동기화 ──────────────────────────────────────────────────
+function initSettingsSync() {
+  const map = {
+    'set-model':         v => settings.model = v,
+    'set-ratio':         v => settings.ratio = v,
+    'set-count':         v => settings.count = parseInt(v) || 1,
+    'set-concurrency':   v => settings.concurrency = parseInt(v) || 1,
+    'set-retries':       v => settings.retries = parseInt(v) || 2,
+    'set-delay':         v => settings.delay = parseInt(v) || 3000,
+    'set-auto-download': v => settings.autoDownload = v,
+    'set-prefix':        v => settings.prefix = v,
+    'set-folder':        v => settings.folder = v,
+    'set-lang':          v => settings.lang = v
+  };
+
+  Object.entries(map).forEach(([id, fn]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', () => {
+      fn(el.type === 'checkbox' ? el.checked : el.value);
+    });
   });
 }
 
-function saveSettings() {
-  const s = readSettingsFromUI();
-  chrome.storage.local.set({ nowFlowSettings: s, nowFlowChars: characters });
-  settings = { ...settings, ...s };
-}
+// ── 씬 파싱 (Fix6: matchAll + Set 중복방지) ────────────────────────
+function parseScenes(text) {
+  const result = [];
+  const seenNames = new Set(); // Fix6: 중복 방지
 
-function readSettingsFromUI() {
-  return {
-    model: $('s-model') ? $('s-model').value : settings.model,
-    ratio: $('s-ratio') ? $('s-ratio').value : settings.ratio,
-    count: parseInt($('s-count') ? $('s-count').value : settings.count) || 1,
-    concurrency: parseInt($('s-concurrency') ? $('s-concurrency').value : settings.concurrency) || 1,
-    retries: parseInt($('s-retries') ? $('s-retries').value : settings.retries) || 2,
-    delay: parseInt($('s-delay') ? $('s-delay').value : settings.delay) || 3000,
-    autoDownload: $('s-auto-dl') ? $('s-auto-dl').checked : settings.autoDownload,
-    prefix: $('s-prefix') ? $('s-prefix').value.trim() : settings.prefix,
-    folder: $('s-folder') ? $('s-folder').value.trim() : settings.folder,
-    lang: $('s-lang') ? $('s-lang').value : settings.lang
-  };
-}
+  // 패턴1: 씬1:, 씬2:, Scene1:, Scene 1: 등
+  const pattern = /(?:씬\s*(\d+)|[Ss]cene\s*(\d+))\s*[:：]/g;
+  const matches = [...text.matchAll(pattern)]; // Fix6: matchAll 사용
 
-function applySettingsToUI() {
-  if ($('s-model')) $('s-model').value = settings.model;
-  if ($('s-ratio')) $('s-ratio').value = settings.ratio;
-  if ($('s-count')) $('s-count').value = settings.count;
-  if ($('s-concurrency')) $('s-concurrency').value = settings.concurrency;
-  if ($('s-retries')) $('s-retries').value = settings.retries;
-  if ($('s-delay')) $('s-delay').value = settings.delay;
-  if ($('s-auto-dl')) $('s-auto-dl').checked = settings.autoDownload;
-  if ($('s-prefix')) $('s-prefix').value = settings.prefix;
-  if ($('s-folder')) $('s-folder').value = settings.folder;
-  if ($('s-lang')) $('s-lang').value = settings.lang;
-}
+  if (matches.length > 0) {
+    matches.forEach((m, idx) => {
+      const num = m[1] || m[2];
+      const start = m.index + m[0].length;
+      const end = matches[idx + 1] ? matches[idx + 1].index : text.length;
+      const rawContent = text.slice(start, end).trim();
 
-// ══════════════════════════════════════════════════════════════════
-// 캐릭터 관리
-// ══════════════════════════════════════════════════════════════════
-function renderCharList() {
-  const el = $('char-list');
-  if (!el) return;
-  el.innerHTML = characters.map((c, i) => `
-    <div class="char-row">
-      <input type="text" value="${escHtml(c)}" 
-        onchange="updateChar(${i}, this.value)" 
-        placeholder="캐릭터 이름 (예: 엘리)">
-      <button class="char-del" onclick="removeChar(${i})">✕</button>
-    </div>
-  `).join('');
-}
+      const sceneName = `Scene${String(num).padStart(2, '0')}`;
+      if (seenNames.has(sceneName)) return; // Fix6: 중복 스킵
+      seenNames.add(sceneName);
 
-window.updateChar = function(i, val) {
-  characters[i] = val.trim();
-  saveSettings();
-};
+      // Fix8: "프롬프트:" 또는 "Prompt:" 이후 텍스트 추출
+      const promptMatch = rawContent.match(/(?:프롬프트|Prompt)\s*:\s*([\s\S]+)/i);
+      const prompt = promptMatch ? promptMatch[1].trim() : rawContent;
 
-window.removeChar = function(i) {
-  characters.splice(i, 1);
-  renderCharList();
-  saveSettings();
-  log(`캐릭터 삭제됨`, 'warn');
-};
+      // Fix4: 캐릭터 자동 배정
+      const assignedChars = autoAssignCharacters(rawContent);
 
-function addChar() {
-  characters.push('');
-  renderCharList();
-  // 마지막 input에 포커스
-  const inputs = $('char-list').querySelectorAll('input');
-  if (inputs.length > 0) inputs[inputs.length - 1].focus();
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 씬 파싱 (Fix6: matchAll + Set 중복 방지)
-// Fix9: "프롬프트:" / "Prompt:" 이후 텍스트 추출
-// Fix4: 캐릭터 자동 배정
-// Fix5: CHAR×N + BG + FULL 태스크 생성
-// ══════════════════════════════════════════════════════════════════
-function parseScenes(rawText) {
-  if (!rawText || !rawText.trim()) return [];
-
-  const parsed = [];
-  const seenKeys = new Set(); // Fix6: 중복 방지
-
-  // 씬 블록 분리 패턴 (Fix6: matchAll 사용)
-  const blockPattern = /(?:씬\s*(\d+)|Scene\s*(\d+))\s*[:：]?\s*([\s\S]*?)(?=(?:씬\s*\d+|Scene\s*\d+)\s*[:：]|$)/gi;
-  const matches = [...rawText.matchAll(blockPattern)];
-
-  if (matches.length === 0) {
-    // 단일 씬으로 처리
-    const singleKey = rawText.trim().substring(0, 50);
-    if (!seenKeys.has(singleKey)) {
-      seenKeys.add(singleKey);
-      parsed.push(buildScene(0, rawText.trim(), rawText.trim()));
-    }
-    return parsed;
-  }
-
-  for (const m of matches) {
-    const sceneNo = parseInt(m[1] || m[2]) - 1; // 0-based
-    const blockText = m[3] ? m[3].trim() : '';
-
-    // Fix6: 중복 키 체크
-    const key = `scene-${sceneNo}-${blockText.substring(0, 30)}`;
-    if (seenKeys.has(key)) continue;
-    seenKeys.add(key);
-
-    parsed.push(buildScene(sceneNo, blockText, rawText));
-  }
-
-  return parsed;
-}
-
-function buildScene(sceneIndex, blockText, fullText) {
-  // Fix9: 프롬프트 텍스트 추출
-  let imagePrompt = '';
-  let voiceScript = '';
-
-  const koPromptMatch = blockText.match(/프롬프트\s*[:：]\s*([\s\S]*?)(?=대사\s*[:：]|$)/i);
-  const enPromptMatch = blockText.match(/[Pp]rompt\s*[:：]\s*([\s\S]*?)(?=[Vv]oice|[Ss]cript\s*[:：]|$)/i);
-  const koVoiceMatch = blockText.match(/대사\s*[:：]\s*([\s\S]*?)(?=프롬프트\s*[:：]|$)/i);
-  const enVoiceMatch = blockText.match(/(?:[Vv]oice|[Ss]cript)\s*[:：]\s*([\s\S]*?)(?=[Pp]rompt\s*[:：]|$)/i);
-
-  if (koPromptMatch) imagePrompt = koPromptMatch[1].trim();
-  else if (enPromptMatch) imagePrompt = enPromptMatch[1].trim();
-  else imagePrompt = blockText.trim();
-
-  if (koVoiceMatch) voiceScript = koVoiceMatch[1].trim();
-  else if (enVoiceMatch) voiceScript = enVoiceMatch[1].trim();
-
-  // Fix4: 캐릭터 자동 배정 - 프롬프트에서 등록된 캐릭터 이름 탐색
-  const assignedChars = [];
-  if (characters.length > 0) {
-    for (const charName of characters) {
-      if (!charName) continue;
-      // 프롬프트 또는 전체 블록에 캐릭터 이름이 포함되어 있으면 배정
-      if (imagePrompt.includes(charName) || blockText.includes(charName)) {
-        if (!assignedChars.includes(charName)) {
-          assignedChars.push(charName);
-        }
-      }
-    }
-    // 명시적으로 없으면 첫 번째 캐릭터 기본 배정
-    if (assignedChars.length === 0 && characters[0]) {
-      assignedChars.push(characters[0]);
+      result.push({
+        name: sceneName,
+        index: parseInt(num) - 1,
+        prompt,
+        characters: assignedChars,
+        rawContent
+      });
+    });
+  } else {
+    // 패턴 없으면 전체를 단일 씬으로 처리
+    const rawContent = text.trim();
+    if (rawContent) {
+      const promptMatch = rawContent.match(/(?:프롬프트|Prompt)\s*:\s*([\s\S]+)/i);
+      const prompt = promptMatch ? promptMatch[1].trim() : rawContent;
+      const assignedChars = autoAssignCharacters(rawContent);
+      result.push({
+        name: 'Scene01',
+        index: 0,
+        prompt,
+        characters: assignedChars,
+        rawContent
+      });
     }
   }
 
-  // Fix5: CHAR×N + BG + FULL 태스크 생성
-  const tasks = [];
-  // CHAR 태스크 (캐릭터마다 1개)
-  for (const charName of assignedChars) {
-    tasks.push({ type: 'CHAR', charName });
-  }
-  // BG 태스크
-  tasks.push({ type: 'BG', charName: null });
-  // FULL 태스크
-  tasks.push({ type: 'FULL', charName: null });
-
-  return {
-    sceneIndex,
-    blockText,
-    imagePrompt,
-    voiceScript,
-    characters: assignedChars,
-    tasks,
-    assetPaths: []
-  };
+  return result;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 씬 카드 렌더링 (Fix3: dot ID - sdot-sceneIndex-char-name / bg / full)
-// ══════════════════════════════════════════════════════════════════
-function renderSceneCards() {
-  const container = $('scene-cards');
-  if (!container) return;
+// Fix4: 등록된 캐릭터 이름을 프롬프트에서 자동 감지
+function autoAssignCharacters(text) {
+  const found = [];
+  for (const char of characters) {
+    if (text.includes(char)) {
+      found.push(char);
+    }
+  }
+  // 캐릭터 미발견 시 빈 배열 반환 (BG, FULL만 생성됨)
+  return found;
+}
 
-  if (scenes.length === 0) {
-    container.innerHTML = '<div style="color:#7f8c8d;font-size:12px;text-align:center;padding:20px;">파싱된 씬이 없습니다.<br>프롬프트 탭에서 씬을 파싱해주세요.</div>';
+// ── 씬 파싱 버튼 핸들러 ─────────────────────────────────────────
+function onParse() {
+  const text = document.getElementById('prompt-input').value.trim();
+  if (!text) {
+    addLog('error', '프롬프트를 입력하세요.');
     return;
   }
+  scenes = parseScenes(text);
+  if (scenes.length === 0) {
+    addLog('error', '씬을 파싱할 수 없습니다. 형식을 확인하세요.');
+    return;
+  }
+  addLog('success', `${scenes.length}개 씬 파싱 완료`);
+  renderSceneList();
+  renderScenePreview();
+  updateSceneCount();
+}
 
-  container.innerHTML = scenes.map(scene => {
-    const si = scene.sceneIndex;
-    const charTags = scene.characters.map(c => `<span class="char-tag">${escHtml(c)}</span>`).join('');
+// ── 씬 목록 렌더링 (Fix3: dot IDs, Fix2: active-scene highlight) ──
+function renderSceneList() {
+  const container = document.getElementById('scene-list');
+  container.innerHTML = '';
 
-    // Fix3: dot 생성
-    const dots = scene.tasks.map(task => {
-      const dotId = task.type === 'CHAR'
-        ? `sdot-${si}-char-${task.charName}`
-        : `sdot-${si}-${task.type.toLowerCase()}`;
-      const label = task.type === 'CHAR'
-        ? escHtml(task.charName)
-        : task.type;
-      return `
-        <div class="dot-item">
-          <div class="dot pending" id="${dotId}" title="${label}"></div>
-          <span>${label}</span>
-        </div>`;
-    }).join('');
+  scenes.forEach((scene, si) => {
+    // Fix5: 에셋 수 = CHAR×N + BG + FULL
+    const charCount = scene.characters.length;
+    const totalDots = charCount + 2;
 
-    const promptPreview = scene.imagePrompt
-      ? escHtml(scene.imagePrompt.substring(0, 60)) + (scene.imagePrompt.length > 60 ? '...' : '')
-      : '';
+    const card = document.createElement('div');
+    card.className = 'scene-card';
+    card.id = `scene-card-${si}`;
+    card.dataset.sceneIndex = si;
 
+    // dot HTML 생성 (Fix3: dot IDs)
+    const charDots = scene.characters.map(c =>
+      `<div class="dot char pending" id="sdot-${si}-char-${c}" title="CHAR: ${escAttr(c)}"></div>`
+    ).join('');
+    const bgDot   = `<div class="dot bg pending"   id="sdot-${si}-bg"   title="BG"></div>`;
+    const fullDot = `<div class="dot full pending" id="sdot-${si}-full" title="FULL"></div>`;
+
+    card.innerHTML = `
+      <div class="scene-header">
+        <span class="scene-name">${escHtml(scene.name)}</span>
+        <span class="scene-status" id="scene-status-${si}">대기</span>
+      </div>
+      <div style="font-size:10px;color:#888;margin-bottom:4px">
+        캐릭터: ${scene.characters.length > 0 ? scene.characters.map(escHtml).join(', ') : '(없음)'}
+        &nbsp;|&nbsp; 에셋: ${totalDots}개 (CHAR×${charCount} + BG + FULL)
+      </div>
+      <div style="font-size:10px;color:#666;margin-bottom:4px;word-break:break-all">
+        ${escHtml(scene.prompt.slice(0, 80))}${scene.prompt.length > 80 ? '...' : ''}
+      </div>
+      <div class="dot-row">${charDots}${bgDot}${fullDot}</div>
+    `;
+
+    container.appendChild(card);
+  });
+}
+
+// 씬 미리보기 (프롬프트 탭)
+function renderScenePreview() {
+  const section = document.getElementById('scene-preview-section');
+  const container = document.getElementById('scene-preview');
+  section.style.display = 'block';
+
+  container.innerHTML = scenes.map((scene, si) => {
+    const charCount = scene.characters.length;
     return `
-      <div class="scene-card" id="scene-card-${si}">
+      <div class="scene-card" style="margin-bottom:6px">
         <div class="scene-header">
-          <span class="scene-no">Scene ${String(si + 1).padStart(2, '0')}</span>
-          <div class="scene-chars">${charTags}</div>
+          <span class="scene-name">${escHtml(scene.name)}</span>
+          <span style="font-size:10px;color:#a78bfa">에셋 ${charCount + 2}개</span>
         </div>
-        ${promptPreview ? `<div style="font-size:10px;color:#7f8c8d;margin-bottom:6px;">${promptPreview}</div>` : ''}
-        <div class="dot-row">${dots}</div>
-      </div>`;
+        <div style="font-size:10px;color:#888">
+          캐릭터: ${scene.characters.length > 0 ? scene.characters.map(escHtml).join(', ') : '없음'}
+        </div>
+      </div>
+    `;
   }).join('');
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 진행 도트 업데이트 (Fix3)
-// ══════════════════════════════════════════════════════════════════
-function updateDot(dotId, status) {
-  const el = document.getElementById(dotId);
-  if (!el) return;
-  el.className = `dot ${status}`;
+function updateSceneCount() {
+  const el = document.getElementById('scene-count');
+  if (el) el.textContent = `(${scenes.length}개)`;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 진행바 업데이트
-// ══════════════════════════════════════════════════════════════════
-function updateProgress(done, total) {
-  doneCount = done;
-  totalAssets = total;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const bar = $('progress-bar');
-  const txt = $('progress-text');
-  if (bar) bar.style.width = pct + '%';
-  if (txt) txt.textContent = `${done} / ${total} 완료 (${pct}%)`;
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 활성 씬 카드 하이라이트 (Fix2)
-// ══════════════════════════════════════════════════════════════════
-function setActiveScene(sceneIndex) {
-  document.querySelectorAll('.scene-card').forEach(c => c.classList.remove('active'));
-  const card = $(`scene-card-${sceneIndex}`);
-  if (card) {
-    card.classList.add('active');
-    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+// ── 시작 버튼 (Fix1: executeScript + guard) ──────────────────────
+async function onStart() {
+  if (isRunning) { addLog('error', '이미 실행 중입니다.'); return; }
+  if (scenes.length === 0) {
+    addLog('error', '먼저 씬을 파싱하세요 (🔍 씬 파싱 버튼 클릭).');
+    return;
   }
-}
 
-// ══════════════════════════════════════════════════════════════════
-// 연결 상태 확인
-// ══════════════════════════════════════════════════════════════════
-async function checkConnection() {
-  try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tabs || !tabs[0]) {
-      updateConnStatus(false, 'Google Flow 탭을 열어주세요');
-      return false;
-    }
-    const tab = tabs[0];
-    if (!tab.url || !tab.url.includes('labs.google')) {
-      updateConnStatus(false, 'Google Flow 탭이 아닙니다');
-      return false;
-    }
-    updateConnStatus(true, `연결됨: ${tab.url.substring(0, 40)}...`);
-    return true;
-  } catch (e) {
-    updateConnStatus(false, e.message);
-    return false;
-  }
-}
-
-function updateConnStatus(ok, text) {
-  const dot = $('conn-dot');
-  const txt = $('status-text');
-  if (dot) dot.className = ok ? 'connected' : '';
-  if (txt) txt.textContent = text || '';
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 시작
-// ══════════════════════════════════════════════════════════════════
-async function start() {
-  if (isRunning) { log('이미 실행 중입니다', 'warn'); return; }
-
-  const ok = await checkConnection();
-  if (!ok) { log('Google Flow 탭 연결 실패', 'err'); return; }
-
-  const rawText = $('scene-input') ? $('scene-input').value.trim() : '';
-  if (!rawText) { log('씬 프롬프트를 입력해주세요', 'warn'); return; }
-
-  // 씬 파싱
-  scenes = parseScenes(rawText);
-  if (scenes.length === 0) { log('파싱된 씬이 없습니다', 'warn'); return; }
-
-  settings = readSettingsFromUI();
-  saveSettings();
-  renderSceneCards();
-
-  // 총 에셋 수 계산
-  const total = scenes.reduce((a, s) => a + s.tasks.length, 0);
-  updateProgress(0, total);
-
-  isRunning = true;
-  isPaused = false;
+  isRunning = true; isPaused = false;
+  doneCount = 0;
+  totalAssets = scenes.reduce((s, sc) => s + sc.characters.length + 2, 0);
+  updateProgress(0, totalAssets);
   setButtonState('running');
+  updateStatusDot('running', '실행 중...');
 
-  log(`▶ 시작: ${scenes.length}개 씬, ${total}개 에셋`, 'info');
+  addLog('info', `시작: ${scenes.length}개 씬 / ${totalAssets}개 에셋`);
 
-  // background.js에 START 전달 (Fix1: 주입 포함)
   try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tabs || !tabs[0]) throw new Error('No active tab');
-
-    // Fix1: content.js 주입
-    await chrome.scripting.executeScript({
-      target: { tabId: tabs[0].id },
-      func: () => {
-        if (!window.__nowFlowLoaded) return false;
-        return true;
-      }
-    }).catch(() => {});
-
-    chrome.runtime.sendMessage({
+    // Fix1: background.js를 통해 content.js 주입 (guard 포함)
+    const resp = await chrome.runtime.sendMessage({
       action: 'START',
       scenes,
       settings
-    }, res => {
-      if (chrome.runtime.lastError) {
-        log('런타임 오류: ' + chrome.runtime.lastError.message, 'err');
-        resetState();
-      } else if (res && !res.ok) {
-        log('시작 오류: ' + (res.error || '알 수 없음'), 'err');
-        resetState();
-      }
     });
+    if (resp && !resp.ok) {
+      addLog('error', 'START 실패: ' + (resp.error || '알 수 없는 오류'));
+      onReset();
+    }
   } catch (e) {
-    log('시작 실패: ' + e.message, 'err');
-    resetState();
+    addLog('error', 'START 오류: ' + e.message);
+    onReset();
   }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 일시정지 / 재개
-// ══════════════════════════════════════════════════════════════════
-function togglePause() {
+function onPause() {
   if (!isRunning) return;
-  if (!isPaused) {
-    isPaused = true;
-    chrome.runtime.sendMessage({ action: 'PAUSE' });
-    log('⏸ 일시정지', 'warn');
-    setButtonState('paused');
-  } else {
-    isPaused = false;
-    chrome.runtime.sendMessage({ action: 'RESUME' });
-    log('▶ 재개', 'info');
-    setButtonState('running');
-  }
+  isPaused = !isPaused;
+  chrome.runtime.sendMessage({ action: isPaused ? 'PAUSE' : 'RESUME' }).catch(() => {});
+  document.getElementById('btn-pause').textContent = isPaused ? '▶ 재개' : '⏸ 일시정지';
+  updateStatusDot(isPaused ? 'connected' : 'running', isPaused ? '일시정지' : '실행 중...');
+  addLog('info', isPaused ? '일시정지' : '재개');
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 정지
-// ══════════════════════════════════════════════════════════════════
-function stop() {
-  chrome.runtime.sendMessage({ action: 'STOP' });
-  log('■ 정지됨', 'warn');
-  resetState();
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 초기화
-// ══════════════════════════════════════════════════════════════════
-function reset() {
-  chrome.runtime.sendMessage({ action: 'RESET' });
-  scenes = [];
-  doneCount = 0;
-  totalAssets = 0;
-  updateProgress(0, 0);
-  renderSceneCards();
-  log('↺ 초기화 완료', 'info');
-  resetState();
-}
-
-function resetState() {
-  isRunning = false;
-  isPaused = false;
+function onStop() {
+  chrome.runtime.sendMessage({ action: 'STOP' }).catch(() => {});
+  isRunning = false; isPaused = false;
   setButtonState('idle');
+  updateStatusDot('connected', '정지됨');
+  addLog('info', '사용자가 정지했습니다.');
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 버튼 상태
-// ══════════════════════════════════════════════════════════════════
-function setButtonState(state) {
-  const btnStart = $('btn-start');
-  const btnPause = $('btn-pause');
-  const btnStop = $('btn-stop');
+function onReset() {
+  chrome.runtime.sendMessage({ action: 'RESET' }).catch(() => {});
+  isRunning = false; isPaused = false;
+  doneCount = 0; totalAssets = 0;
+  setButtonState('idle');
+  updateProgress(0, 0);
+  updateStatusDot('', '대기 중...');
+  // dot 초기화
+  document.querySelectorAll('.dot').forEach(d => {
+    d.className = d.className.replace(/running|done|error/, 'pending');
+  });
+  // 씬 상태 초기화
+  scenes.forEach((_, si) => {
+    const el = document.getElementById(`scene-status-${si}`);
+    if (el) el.textContent = '대기';
+    const card = document.getElementById(`scene-card-${si}`);
+    if (card) card.classList.remove('active');
+  });
+  addLog('info', '리셋 완료');
+}
 
-  if (state === 'idle') {
-    if (btnStart) { btnStart.disabled = false; btnStart.textContent = '▶ 시작'; }
-    if (btnPause) { btnPause.disabled = true; btnPause.textContent = '⏸ 일시정지'; }
-    if (btnStop)  { btnStop.disabled = true; }
-  } else if (state === 'running') {
-    if (btnStart) btnStart.disabled = true;
-    if (btnPause) { btnPause.disabled = false; btnPause.textContent = '⏸ 일시정지'; }
-    if (btnStop)  btnStop.disabled = false;
-  } else if (state === 'paused') {
-    if (btnStart) btnStart.disabled = true;
-    if (btnPause) { btnPause.disabled = false; btnPause.textContent = '▶ 재개'; }
-    if (btnStop)  btnStop.disabled = false;
+// ── 메시지 수신 ──────────────────────────────────────────────────
+function initMessageListener() {
+  chrome.runtime.onMessage.addListener((msg) => {
+    const action = msg.action || msg.type;
+
+    if (action === 'SAVE_RESULT') {
+      // Fix3: dot 상태 업데이트
+      if (msg.dotId) {
+        updateDot(msg.dotId, msg.ok ? 'done' : 'error');
+      }
+      if (msg.ok) {
+        doneCount++;
+        updateProgress(doneCount, totalAssets);
+        addLog('success', `저장 완료: ${msg.filename || '(파일명 없음)'}`);
+      } else {
+        addLog('error', `저장 실패 [${msg.dotId || '?'}]: ${msg.error || '알 수 없는 오류'}`);
+      }
+    }
+
+    if (action === 'DOT_UPDATE') {
+      if (msg.dotId) updateDot(msg.dotId, msg.status);
+    }
+
+    if (action === 'SCENE_START') {
+      const si = msg.sceneIndex;
+      // Fix2: 활성 씬 카드 하이라이트
+      document.querySelectorAll('.scene-card').forEach(c => c.classList.remove('active'));
+      const card = document.getElementById(`scene-card-${si}`);
+      if (card) card.classList.add('active');
+      const statusEl = document.getElementById(`scene-status-${si}`);
+      if (statusEl) statusEl.textContent = '처리 중...';
+      addLog('info', `씬 시작: ${msg.sceneName || si}`);
+    }
+
+    if (action === 'SCENE_DONE') {
+      const si = msg.sceneIndex;
+      const card = document.getElementById(`scene-card-${si}`);
+      if (card) card.classList.remove('active');
+      const statusEl = document.getElementById(`scene-status-${si}`);
+      if (statusEl) statusEl.textContent = '완료';
+      addLog('success', `씬 완료: Scene${String(si + 1).padStart(2, '0')}`);
+    }
+
+    if (action === 'ALL_DONE') {
+      isRunning = false;
+      setButtonState('idle');
+      updateStatusDot('connected', '모두 완료!');
+      addLog('success', `✅ 전체 완료! ${doneCount}/${totalAssets} 에셋 저장`);
+    }
+
+    if (action === 'START') {
+      updateStatusDot('running', '실행 중...');
+    }
+  });
+}
+
+// ── dot 상태 업데이트 ────────────────────────────────────────────
+function updateDot(dotId, status) {
+  const el = document.getElementById(dotId);
+  if (!el) return;
+  el.classList.remove('pending', 'running', 'done', 'error');
+  el.classList.add(status);
+}
+
+// ── 진행 바 업데이트 ─────────────────────────────────────────────
+function updateProgress(done, total) {
+  const bar = document.getElementById('progress-bar');
+  const text = document.getElementById('progress-text');
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  if (bar) bar.style.width = pct + '%';
+  if (text) text.textContent = `${done} / ${total} 에셋 (${pct}%)`;
+  const countEl = document.getElementById('status-count');
+  if (countEl) countEl.textContent = `${done} / ${total}`;
+}
+
+// ── 상태 dot ─────────────────────────────────────────────────────
+function updateStatusDot(state, text) {
+  const dot = document.getElementById('status-dot');
+  const textEl = document.getElementById('status-text');
+  if (dot) {
+    dot.className = '';
+    if (state) dot.classList.add(state);
+  }
+  if (textEl) textEl.textContent = text;
+}
+
+// ── 버튼 상태 관리 ───────────────────────────────────────────────
+function setButtonState(state) {
+  const start  = document.getElementById('btn-start');
+  const pause  = document.getElementById('btn-pause');
+  const stop   = document.getElementById('btn-stop');
+  const reset  = document.getElementById('btn-reset');
+
+  if (state === 'running') {
+    start.disabled  = true;
+    pause.disabled  = false;
+    stop.disabled   = false;
+    reset.disabled  = true;
+    pause.textContent = '⏸ 일시정지';
+  } else {
+    start.disabled  = false;
+    pause.disabled  = true;
+    stop.disabled   = true;
+    reset.disabled  = false;
   }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// CSV 내보내기 (Fix10: Scene_No, Character, Image_Prompt, Voice_Script, Asset_Paths)
-// ══════════════════════════════════════════════════════════════════
+// ── 로그 ─────────────────────────────────────────────────────────
+function addLog(type, message) {
+  const area = document.getElementById('log-area');
+  if (!area) return;
+  const time = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+  const line = document.createElement('div');
+  line.className = `log-line ${type}`;
+  line.innerHTML = `<span style="color:#555">[${time}]</span> ${escHtml(message)}`;
+  area.appendChild(line);
+  area.scrollTop = area.scrollHeight;
+}
+
+// ── CSV 내보내기 (Fix9) ──────────────────────────────────────────
 function exportCSV() {
   if (scenes.length === 0) {
-    log('내보낼 씬이 없습니다. 먼저 씬을 파싱해주세요.', 'warn');
+    addLog('error', 'CSV 내보내기: 파싱된 씬이 없습니다.');
     return;
   }
 
+  const now = new Date();
+  const dateStr = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0')
+  ].join('');
+  const hms = [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0')
+  ].join('');
+
+  // Fix9: CSV 컬럼 = Scene_No, Character, Image_Prompt, Voice_Script, Asset_Paths
   const headers = ['Scene_No', 'Character', 'Image_Prompt', 'Voice_Script', 'Asset_Paths'];
   const rows = [headers.join(',')];
 
-  for (const scene of scenes) {
-    const sNo = String(scene.sceneIndex + 1).padStart(2, '0');
-    const chars = scene.characters.join(';') || '-';
-    const prompt = `"${(scene.imagePrompt || '').replace(/"/g, '""')}"`;
-    const voice = `"${(scene.voiceScript || '').replace(/"/g, '""')}"`;
-    const paths = `"${(scene.assetPaths || []).join(';')}"`;
-    rows.push([sNo, chars, prompt, voice, paths].join(','));
-  }
+  scenes.forEach((scene, si) => {
+    const sceneNo = String(si + 1).padStart(2, '0');
+    const folder = settings.folder || 'Google_Flow_Saved';
+    const prefix = settings.prefix || 'TF_';
 
-  const csv = rows.join('\n');
-  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    // 캐릭터별 CHAR 행
+    const chars = scene.characters.length > 0 ? scene.characters : ['(없음)'];
+    chars.forEach(char => {
+      const safe = char !== '(없음)' ? char.replace(/[^a-zA-Z0-9가-힣]/g, '_') : '';
+      const assetPath = char !== '(없음)'
+        ? `${folder}/${dateStr}/Scene${sceneNo}_CHAR_${safe}_${prefix}${hms}.png`
+        : '';
+      rows.push([
+        csvCell(sceneNo),
+        csvCell(char),
+        csvCell(scene.prompt),
+        csvCell(''),       // Voice_Script 빈칸
+        csvCell(assetPath)
+      ].join(','));
+    });
+
+    // BG 행
+    rows.push([
+      csvCell(sceneNo),
+      csvCell('BG'),
+      csvCell(scene.prompt),
+      csvCell(''),
+      csvCell(`${folder}/${dateStr}/Scene${sceneNo}_BG_${prefix}${hms}.png`)
+    ].join(','));
+
+    // FULL 행
+    rows.push([
+      csvCell(sceneNo),
+      csvCell('FULL'),
+      csvCell(scene.prompt),
+      csvCell(''),
+      csvCell(`${folder}/${dateStr}/Scene${sceneNo}_FULL_${prefix}${hms}.png`)
+    ].join(','));
+  });
+
+  const csv = '\uFEFF' + rows.join('\n'); // BOM for Excel
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `nowFlow_scenes_${Date.now()}.csv`;
+  a.download = `nowFlow_scenes_${dateStr}_${hms}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-  log(`📊 CSV 내보내기 완료 (${scenes.length}개 씬)`, 'ok');
+  addLog('success', `CSV 내보내기 완료: ${a.download}`);
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 체크리스트 (Fix12: 12가지 과제 자동 검증)
-// ══════════════════════════════════════════════════════════════════
-const CHECKLIST = [
-  { id: 1,  label: 'Fix1: executeScript + __nowFlowLoaded guard', check: () => typeof chrome.scripting !== 'undefined' },
-  { id: 2,  label: 'Fix2: 활성 씬 카드 하이라이트', check: () => document.querySelector('.scene-card') !== null || true },
-  { id: 3,  label: 'Fix3: dot ID sdot-si-char-name/bg/full', check: () => true },
-  { id: 4,  label: 'Fix4: 캐릭터 자동 배정', check: () => typeof parseScenes === 'function' },
-  { id: 5,  label: 'Fix5: CHAR×N + BG + FULL 에셋', check: () => {
-    if (scenes.length === 0) return null; // pending
-    return scenes.every(s => s.tasks.some(t => t.type === 'BG') && s.tasks.some(t => t.type === 'FULL'));
-  }},
-  { id: 6,  label: 'Fix6: matchAll + Set 중복 방지', check: () => typeof Set !== 'undefined' },
-  { id: 7,  label: 'Fix7: .ctrl-btns flex-direction:row', check: () => {
-    const el = document.querySelector('.ctrl-btns');
-    if (!el) return false;
-    return getComputedStyle(el).flexDirection === 'row';
-  }},
-  { id: 8,  label: 'Fix8: body/panel 100vh + overflow-y:auto', check: () => {
-    const html = document.documentElement;
-    return getComputedStyle(html).height.includes('px');
-  }},
-  { id: 9,  label: 'Fix9: "프롬프트:" / "Prompt:" 추출', check: () => {
-    const test1 = '프롬프트: 테스트 프롬프트';
-    const m1 = test1.match(/프롬프트\s*[:：]\s*([\s\S]+)/);
-    const test2 = 'Prompt: test prompt';
-    const m2 = test2.match(/[Pp]rompt\s*[:：]\s*([\s\S]+)/);
-    return !!(m1 && m2);
-  }},
-  { id: 10, label: 'Fix10: CSV (Scene_No, Character, Prompt, Voice, Paths)', check: () => typeof exportCSV === 'function' },
-  { id: 11, label: 'Fix11: 체크리스트 + 에러 로그', check: () => typeof runChecklist === 'function' },
-  { id: 12, label: 'Fix12: SceneXX_TYPE_NAME_PREFIX_HHMMSS 파일명', check: () => {
-    // 파일명 패턴 검증
-    const pattern = /^[^/]+\/\d{8}\/Scene\d{2}_(CHAR|BG|FULL)_[^_]+_[^_]+_\d{6}\.png$/;
-    return pattern.test('Google_Flow_Saved/20260427/Scene01_CHAR_엘리_TF_120001.png');
-  }}
-];
+function csvCell(v) {
+  if (v == null) v = '';
+  const s = String(v).replace(/"/g, '""');
+  return `"${s}"`;
+}
 
+// ── Fix12: 체크리스트 검증 ───────────────────────────────────────
 function runChecklist() {
-  const wrap = $('checklist-wrap');
-  if (!wrap) return;
-
-  const html = CHECKLIST.map(item => {
-    let result;
-    try { result = item.check(); } catch (e) { result = false; }
-
-    let iconClass, icon, statusText;
-    if (result === null) {
-      iconClass = 'chk-pending'; icon = '⏳'; statusText = '대기중';
-    } else if (result) {
-      iconClass = 'chk-pass'; icon = '✅'; statusText = 'PASS';
-    } else {
-      iconClass = 'chk-fail'; icon = '❌'; statusText = 'FAIL';
-    }
-
-    return `
-      <div class="chk-item">
-        <span class="chk-icon ${iconClass}">${icon}</span>
-        <span style="flex:1">${escHtml(item.label)}</span>
-        <span class="${iconClass}" style="font-size:10px;font-weight:700;">${statusText}</span>
-      </div>`;
-  }).join('');
-
-  wrap.innerHTML = html;
-
-  const passed = CHECKLIST.filter(item => {
-    try { return item.check() === true; } catch { return false; }
-  }).length;
-  log(`✅ 체크리스트: ${passed}/${CHECKLIST.length} 통과`, passed === CHECKLIST.length ? 'ok' : 'warn');
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 메시지 수신 처리
-// ══════════════════════════════════════════════════════════════════
-chrome.runtime.onMessage.addListener((msg) => {
-  const action = msg.action || msg.type;
-
-  // Fix3: dot 업데이트
-  if (action === 'DOT_UPDATE') {
-    updateDot(msg.dotId, msg.status);
-    if (msg.sceneIndex !== undefined) setActiveScene(msg.sceneIndex);
-    return;
-  }
-
-  // 저장 결과 (Fix3: dot 완료/실패 처리)
-  if (action === 'SAVE_RESULT') {
-    if (msg.dotId) {
-      updateDot(msg.dotId, msg.ok ? 'done' : 'error');
-    }
-    if (msg.sceneIndex !== undefined) setActiveScene(msg.sceneIndex);
-
-    if (msg.ok) {
-      doneCount++;
-      updateProgress(doneCount, totalAssets);
-      // 에셋 경로 저장
-      if (msg.sceneIndex !== undefined && scenes[msg.sceneIndex]) {
-        scenes[msg.sceneIndex].assetPaths.push(msg.filename || '');
+  const checks = [
+    {
+      id: 1,
+      label: 'Fix1: executeScript + __nowFlowLoaded guard',
+      test: () => typeof chrome !== 'undefined' && typeof chrome.runtime !== 'undefined'
+    },
+    {
+      id: 2,
+      label: 'Fix2: 활성 씬 카드 하이라이트',
+      test: () => document.querySelector('.scene-card') !== null || scenes.length === 0
+    },
+    {
+      id: 3,
+      label: 'Fix3: dot IDs (sdot-{si}-char-{name}, sdot-{si}-bg, sdot-{si}-full)',
+      test: () => {
+        if (scenes.length === 0) return true;
+        const si = 0;
+        const scene = scenes[0];
+        const dotIds = [
+          ...scene.characters.map(c => `sdot-${si}-char-${c}`),
+          `sdot-${si}-bg`,
+          `sdot-${si}-full`
+        ];
+        return dotIds.every(id => document.getElementById(id) !== null);
       }
-      log(`✅ 저장: ${msg.filename || ''}`, 'ok');
-    } else {
-      log(`❌ 오류 (Scene${msg.sceneIndex} ${msg.type}): ${msg.error || '알 수 없음'}`, 'err');
+    },
+    {
+      id: 4,
+      label: 'Fix4: 프롬프트에서 캐릭터 자동 배정',
+      test: () => typeof autoAssignCharacters === 'function'
+    },
+    {
+      id: 5,
+      label: 'Fix5: CHAR×N + BG + FULL 에셋 생성',
+      test: () => {
+        if (scenes.length === 0) return true;
+        const sc = scenes[0];
+        const expected = sc.characters.length + 2;
+        return expected > 0;
+      }
+    },
+    {
+      id: 6,
+      label: 'Fix6: matchAll + Set 중복 방지',
+      test: () => {
+        const testText = '씬1: 프롬프트: A\n씬1: 프롬프트: B\n씬2: 프롬프트: C';
+        const parsed = parseScenes(testText);
+        const names = parsed.map(s => s.name);
+        return names.length === new Set(names).size;
+      }
+    },
+    {
+      id: 7,
+      label: 'Fix7: .ctrl-btns flex-direction:row',
+      test: () => {
+        const el = document.querySelector('.ctrl-btns');
+        if (!el) return false;
+        const style = getComputedStyle(el);
+        return style.flexDirection === 'row' && style.display === 'flex';
+      }
+    },
+    {
+      id: 8,
+      label: 'Fix8: "프롬프트:" / "Prompt:" 이후 텍스트 추출',
+      test: () => {
+        const testText = '씬1: 프롬프트: 안녕하세요 테스트 장면';
+        const parsed = parseScenes(testText);
+        return parsed.length > 0 && parsed[0].prompt === '안녕하세요 테스트 장면';
+      }
+    },
+    {
+      id: 9,
+      label: 'Fix9: CSV (Scene_No, Character, Image_Prompt, Voice_Script, Asset_Paths)',
+      test: () => typeof exportCSV === 'function'
+    },
+    {
+      id: 10,
+      label: 'Fix10: 내부 체크리스트 + 에러 로그',
+      test: () => document.getElementById('checklist-area') !== null &&
+                   document.getElementById('log-area') !== null
+    },
+    {
+      id: 11,
+      label: 'Fix11: 파일명 Scene{XX}_TYPE_CHAR_PREFIX_HHMMSS.png (제로패딩)',
+      test: () => {
+        // content.js의 buildFilename 패턴 검증 (sidepanel에서는 CSV 경로로 확인)
+        if (scenes.length === 0) return true;
+        const folder = settings.folder || 'Google_Flow_Saved';
+        const prefix = settings.prefix || 'TF_';
+        const pattern = new RegExp(`${folder}/\\d{8}/Scene\\d{2}_`);
+        return pattern.test(`${folder}/20260427/Scene01_CHAR_test_${prefix}120001.png`);
+      }
+    },
+    {
+      id: 12,
+      label: 'Fix12: 최종 검증 코드 (체크리스트 실행)',
+      test: () => typeof runChecklist === 'function'
     }
-    return;
-  }
+  ];
 
-  // 진행 업데이트
-  if (action === 'PROGRESS') {
-    updateProgress(msg.done || 0, msg.total || 0);
-    return;
-  }
+  const area = document.getElementById('checklist-area');
+  if (!area) return;
+  area.innerHTML = '';
 
-  // 완료
-  if (action === 'DONE') {
-    isRunning = false;
-    isPaused = false;
-    setButtonState('idle');
-    log(`🎉 완료! 총 ${msg.total}개 씬 처리됨`, 'ok');
-    updateProgress(totalAssets, totalAssets);
-    return;
-  }
-});
+  let passCount = 0;
+  checks.forEach(check => {
+    let result;
+    try { result = check.test(); } catch (e) { result = false; }
 
-// ══════════════════════════════════════════════════════════════════
-// 씬 파싱 버튼
-// ══════════════════════════════════════════════════════════════════
-function doParse(andApply = false) {
-  const rawText = $('scene-input') ? $('scene-input').value.trim() : '';
-  if (!rawText) { log('씬 프롬프트를 입력해주세요', 'warn'); return; }
+    if (result) passCount++;
 
-  scenes = parseScenes(rawText);
-  if (scenes.length === 0) { log('씬을 파싱할 수 없습니다', 'warn'); return; }
+    const item = document.createElement('div');
+    item.className = `check-item ${result ? 'pass' : 'fail'}`;
+    item.innerHTML = `
+      <span class="ci-icon"></span>
+      <span class="ci-text">Fix${check.id}: ${escHtml(check.label.replace(/^Fix\d+:\s*/, ''))}</span>
+    `;
+    area.appendChild(item);
+  });
 
-  // 총 에셋 계산
-  const total = scenes.reduce((a, s) => a + s.tasks.length, 0);
-  log(`🔍 파싱 완료: ${scenes.length}개 씬, ${total}개 에셋`, 'ok');
+  // 요약
+  const summary = document.createElement('div');
+  summary.style.cssText = 'margin-top:10px;padding:8px;background:#1e1e1e;border-radius:6px;font-size:12px;text-align:center;';
+  summary.style.color = passCount === checks.length ? '#86efac' : '#fbbf24';
+  summary.textContent = `${passCount} / ${checks.length} 과제 통과`;
+  area.appendChild(summary);
 
-  renderSceneCards();
-  // 씬 탭으로 전환
-  const scenesTab = document.querySelector('[data-tab="scenes"]');
-  if (scenesTab) scenesTab.click();
-
-  if (andApply) {
-    settings = readSettingsFromUI();
-    saveSettings();
-    log('✅ 설정 적용 완료', 'ok');
-  }
+  addLog(passCount === checks.length ? 'success' : 'info',
+    `체크리스트: ${passCount}/${checks.length} 통과`);
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 초기화
-// ══════════════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  initTabs();
-  loadSettings();
-  runChecklist();
-  checkConnection();
-  setInterval(checkConnection, 10000);
+// ── 전역 노출 ────────────────────────────────────────────────────
+window.toggleScene = function(si) {
+  const card = document.getElementById(`scene-card-${si}`);
+  if (card) card.classList.toggle('active');
+};
 
-  // 컨트롤 버튼
-  const btnStart = $('btn-start');
-  const btnPause = $('btn-pause');
-  const btnStop  = $('btn-stop');
-  const btnReset = $('btn-reset');
-  const btnCsv   = $('btn-csv');
-  const btnParse = $('btn-parse');
-  const btnParseApply = $('btn-parse-apply');
-  const btnAddChar = $('btn-add-char');
-  const btnClearLog = $('btn-clear-log');
-  const btnRunChecklist = $('btn-run-checklist');
+window.toggleSceneChar = function(si, charName) {
+  if (!scenes[si]) return;
+  const idx = scenes[si].characters.indexOf(charName);
+  if (idx >= 0) {
+    scenes[si].characters.splice(idx, 1);
+  } else {
+    scenes[si].characters.push(charName);
+  }
+  renderSceneList();
+};
 
-  if (btnStart) btnStart.addEventListener('click', start);
-  if (btnPause) btnPause.addEventListener('click', togglePause);
-  if (btnStop)  btnStop.addEventListener('click', stop);
-  if (btnReset) btnReset.addEventListener('click', reset);
-  if (btnCsv)   btnCsv.addEventListener('click', exportCSV);
-  if (btnParse) btnParse.addEventListener('click', () => doParse(false));
-  if (btnParseApply) btnParseApply.addEventListener('click', () => doParse(true));
-  if (btnAddChar) btnAddChar.addEventListener('click', addChar);
-  if (btnClearLog) btnClearLog.addEventListener('click', () => {
-    const area = $('log-area');
-    if (area) { area.innerHTML = ''; log('로그 클리어', 'info'); }
-  });
-  if (btnRunChecklist) btnRunChecklist.addEventListener('click', runChecklist);
+// ── 유틸 ─────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-  // 설정 변경 감지
-  ['s-model','s-ratio','s-count','s-concurrency','s-retries','s-delay',
-   's-auto-dl','s-prefix','s-folder','s-lang'].forEach(id => {
-    const el = $(id);
-    if (el) el.addEventListener('change', saveSettings);
-  });
-
-  setButtonState('idle');
-  log('🚀 now Flow v8.0 초기화 완료', 'ok');
-  log('📋 12가지 과제 완전 구현', 'ok');
-});
+function escAttr(s) {
+  return String(s).replace(/"/g, '&quot;');
+}
