@@ -1,33 +1,27 @@
-// sidepanel.js – now Flow v8.0
-// Fix1:  chrome.scripting.executeScript + __nowFlowLoaded (background.js 처리)
-// Fix2:  씬 카드 active-scene 강조 + 단방향 메시지 + .catch(()=>{})
-// Fix3:  dot 상태 업데이트 (sdot-{si}-char-{name}, sdot-{si}-bg, sdot-{si}-full)
-// Fix4:  캐릭터 자동 배정 (parseScenes 실시간)
-// Fix5:  CHAR×N + BG×1 + FULL×1 에셋 수 계산
+// sidepanel.js – now Flow v8.0 Final
+// Fix1:  executeScript + __nowFlowLoaded (background.js)
+// Fix2:  active-scene 강조 + .catch(()=>{})
+// Fix3:  dot sdot-{si}-char-{name} / sdot-{si}-bg / sdot-{si}-full
+// Fix4:  캐릭터 자동 배정
+// Fix5:  CHAR×N + BG + FULL 에셋 수 계산
 // Fix6:  matchAll + Set 씬 중복 방지
-// Fix7:  ctrl-btns 가로 레이아웃 (CSS)
-// Fix8:  '프롬프트:' / 'Prompt:' 이후 텍스트 추출
+// Fix7:  ctrl-btns flex row (CSS)
+// Fix8:  '프롬프트:' / 'Prompt:' 이후 텍스트
 // Fix9:  CSV (Scene_No, Character, Image_Prompt, Voice_Script, Asset_Paths)
-// Fix10: 내부 체크리스트 + 에러 로그
-// Fix11: 파일명 Scene01_TYPE_CHAR_TF_HHMMSS.png (content.js 처리)
-// Fix12: 최종 검증 코드
+// Fix10: 체크리스트 + addLog
+// Fix11: Scene01_TYPE_CHAR_TF_HHMMSS.png (content.js)
+// Fix12: 최종 검증
 
 'use strict';
 
-/* ════════════════════════════════════════════════
-   전역 상태
-════════════════════════════════════════════════ */
 let scenes      = [];
 let characters  = [];
 let isRunning   = false;
 let isPaused    = false;
 let doneCount   = 0;
 let totalAssets = 0;
-const savedAssets = {};   // { sceneIndex: [filename, …] }  CSV용
+const savedAssets = {};
 
-/* ════════════════════════════════════════════════
-   설정 기본값
-════════════════════════════════════════════════ */
 let settings = {
   model: 'imagen-3', ratio: '16:9', count: 1,
   concurrency: 1, retries: 2, delay: 3000,
@@ -35,9 +29,7 @@ let settings = {
   folder: 'Google_Flow_Saved', lang: 'ko'
 };
 
-/* ════════════════════════════════════════════════
-   DOMContentLoaded
-════════════════════════════════════════════════ */
+/* ── DOMContentLoaded ──────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initConnection();
@@ -51,24 +43,20 @@ document.addEventListener('DOMContentLoaded', () => {
   runChecklist();
 });
 
-/* ════════════════════════════════════════════════
-   탭 전환
-════════════════════════════════════════════════ */
+/* ── 탭 ─────────────────────────────────────────── */
 function initTabs() {
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
-      const panel = document.getElementById(`tab-${tab.dataset.tab}`);
-      if (panel) panel.classList.add('active');
+      const p = document.getElementById(`tab-${tab.dataset.tab}`);
+      if (p) p.classList.add('active');
     });
   });
 }
 
-/* ════════════════════════════════════════════════
-   연결 상태 + 메시지 수신
-════════════════════════════════════════════════ */
+/* ── 연결 상태 + 메시지 수신 ────────────────────── */
 function initConnection() {
   const dot  = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
@@ -77,62 +65,21 @@ function initConnection() {
     switch (msg.action) {
       case 'TAB_STATUS':
         if (msg.status === 'CONNECTED') {
-          dot.classList.add('connected');
-          text.textContent = 'Google Flow 연결됨';
+          dot.classList.add('connected'); text.textContent = 'Google Flow 연결됨';
           addLog('info', 'Google Flow 탭 연결됨');
         } else {
-          dot.classList.remove('connected');
-          text.textContent = '연결 끊김';
+          dot.classList.remove('connected'); text.textContent = '연결 끊김';
           addLog('error', 'Google Flow 탭 연결 끊김');
         }
         break;
-
-      case 'STARTED':
-        isRunning = true; isPaused = false;
-        updateBtnState();
-        addLog('info', '▶ ' + (msg.message || '시작'));
-        break;
-
-      case 'DONE':
-        isRunning = false;
-        updateBtnState();
-        addLog('success', '✅ ' + (msg.message || '완료'));
-        updateProgress();
-        break;
-
-      case 'STOPPED':
-        isRunning = false; isPaused = false;
-        updateBtnState();
-        addLog('info', '⏹ 중지됨');
-        break;
-
-      case 'PAUSED':
-        isPaused = true;
-        updateBtnState();
-        addLog('info', '⏸ 일시정지');
-        break;
-
-      case 'RESUMED':
-        isPaused = false;
-        updateBtnState();
-        addLog('info', '▶ 재개');
-        break;
-
-      case 'ERROR':
-        addLog('error', '❌ ' + (msg.message || '오류'));
-        break;
-
-      case 'SCENE_START':
-        highlightScene(msg.sceneIndex);
-        addLog('info', msg.message || `씬 ${(msg.sceneIndex ?? 0) + 1} 시작`);
-        break;
-
-      // Fix3: dot 상태 업데이트
-      case 'DOT_UPDATE':
-        updateDot(msg.dotId, msg.status);
-        break;
-
-      // Fix9: SAVE_RESULT → asset 경로 수집
+      case 'STARTED':  isRunning = true;  isPaused = false; updateBtnState(); addLog('info',    '▶ ' + (msg.message || '시작')); break;
+      case 'DONE':     isRunning = false;                   updateBtnState(); addLog('success', '✅ ' + (msg.message || '완료')); updateProgress(); break;
+      case 'STOPPED':  isRunning = false;  isPaused = false; updateBtnState(); addLog('info',   '⏹ 중지됨'); break;
+      case 'PAUSED':                       isPaused = true;  updateBtnState(); addLog('info',   '⏸ 일시정지'); break;
+      case 'RESUMED':                      isPaused = false; updateBtnState(); addLog('info',   '▶ 재개'); break;
+      case 'ERROR':     addLog('error',   '❌ ' + (msg.message || '오류')); break;
+      case 'SCENE_START': highlightScene(msg.sceneIndex); addLog('info', msg.message || `씬 ${(msg.sceneIndex ?? 0) + 1} 시작`); break;
+      case 'DOT_UPDATE':  updateDot(msg.dotId, msg.status); break;
       case 'SAVE_RESULT':
         doneCount++;
         updateProgress();
@@ -143,7 +90,6 @@ function initConnection() {
             if (!savedAssets[si]) savedAssets[si] = [];
             savedAssets[si].push(msg.filename);
           }
-          // dot 갱신
           const dotId = msg.type === 'CHAR'
             ? `sdot-${si}-char-${msg.charName}`
             : `sdot-${si}-${(msg.type || '').toLowerCase()}`;
@@ -154,45 +100,29 @@ function initConnection() {
   });
 }
 
-/* ════════════════════════════════════════════════
-   프롬프트 파싱
-════════════════════════════════════════════════ */
+/* ── 프롬프트 ───────────────────────────────────── */
 function initPrompt() {
   document.getElementById('btn-load').addEventListener('click', () => {
     const raw = document.getElementById('prompt-input').value.trim();
     if (!raw) { addLog('error', '프롬프트를 입력하세요'); return; }
     scenes = parseScenes(raw);
-    if (scenes.length === 0) {
-      addLog('error', '씬을 파싱할 수 없습니다. 씬1, Scene1 형식으로 시작하세요.');
-      return;
-    }
-    doneCount   = 0;
-    totalAssets = calcTotalAssets();
-    updateProgress();
-    renderSceneList();
+    if (scenes.length === 0) { addLog('error', '씬을 파싱할 수 없습니다. 씬1/Scene1 형식으로 시작하세요.'); return; }
+    doneCount = 0; totalAssets = calcTotalAssets(); updateProgress(); renderSceneList();
     addLog('success', `✅ ${scenes.length}개 씬 파싱 완료`);
     document.querySelector('[data-tab="scenes"]').click();
   });
-
   document.getElementById('btn-clear').addEventListener('click', () => {
     document.getElementById('prompt-input').value = '';
-    scenes = [];
-    renderSceneList();
-    resetProgress();
+    scenes = []; renderSceneList(); resetProgress();
   });
-
-  // 실시간 파싱 (Fix4: 캐릭터 자동 배정 반영)
   document.getElementById('prompt-input').addEventListener('input', () => {
     const raw = document.getElementById('prompt-input').value.trim();
     if (!raw) return;
-    scenes = parseScenes(raw);
-    totalAssets = calcTotalAssets();
-    updateProgress();
-    renderSceneList();
+    scenes = parseScenes(raw); totalAssets = calcTotalAssets(); updateProgress(); renderSceneList();
   });
 }
 
-/* ── Fix6: matchAll + Set 씬 중복 방지 ──────────── */
+/* ── Fix6: matchAll + Set 씬 중복 방지 ─────────── */
 function parseScenes(raw) {
   const pattern = /(?:씬|Scene|장면)\s*(\d+)/gi;
   const matches = [...raw.matchAll(pattern)];
@@ -201,50 +131,41 @@ function parseScenes(raw) {
 
   for (let i = 0; i < matches.length; i++) {
     const no = parseInt(matches[i][1]);
-    if (seenNos.has(no)) continue;   // Fix6: 중복 제거
+    if (seenNos.has(no)) continue;
     seenNos.add(no);
 
     const start = matches[i].index;
     const end   = i + 1 < matches.length ? matches[i + 1].index : raw.length;
     const block = raw.slice(start, end).trim();
 
-    // Fix8: '프롬프트:' / 'Prompt:' 이후만 추출
+    // Fix8: '프롬프트:' / 'Prompt:' 이후 텍스트
     const promptMatch = block.match(/(?:프롬프트|Prompt)\s*:\s*([\s\S]+?)(?:\n(?:등장인물|Characters|배경|Background)\s*:|$)/i);
     const promptText  = promptMatch ? promptMatch[1].trim() : block.split('\n').slice(1, 3).join(' ').trim();
 
-    // 배경 프롬프트
     const bgMatch  = block.match(/(?:배경|Background)\s*:\s*([\s\S]+?)(?:\n|$)/i);
     const bgPrompt = bgMatch ? bgMatch[1].trim() : '';
 
-    // 등장인물 [이름] 패턴
     const charNames = [...block.matchAll(/\[([^\]]+)\]/g)].map(m => m[1].trim());
-
-    // Fix4: 등록된 캐릭터 중 프롬프트에 언급된 것 자동 추가
+    // Fix4: 등록된 캐릭터 자동 배정
     const autoChars = characters.filter(c => block.includes(c) && !charNames.includes(c));
     const allChars  = [...new Set([...charNames, ...autoChars])];
 
-    result.push({
-      no, title: `씬 ${no}`,
-      prompt: promptText, bgPrompt,
-      characters: allChars, enabled: true
-    });
+    result.push({ no, title: `씬 ${no}`, prompt: promptText, bgPrompt, characters: allChars, enabled: true });
   }
   return result;
 }
 
-/* ── Fix5: 총 에셋 수 계산 ───────────────────────── */
+/* ── Fix5: 총 에셋 수 ───────────────────────────── */
 function calcTotalAssets() {
   return scenes.reduce((sum, s) => {
     if (!s.enabled) return sum;
-    return sum + (s.characters.length > 0 ? s.characters.length : 1) + 2; // CHAR(N)+BG+FULL
+    return sum + (s.characters.length > 0 ? s.characters.length : 1) + 2;
   }, 0);
 }
 
-/* ════════════════════════════════════════════════
-   캐릭터 관리
-════════════════════════════════════════════════ */
+/* ── 캐릭터 ─────────────────────────────────────── */
 function initCharacters() {
-  chrome.storage.local.get(['characters'], (r) => {
+  chrome.storage.local.get(['characters'], r => {
     if (r.characters) { characters = r.characters; renderCharList(); }
   });
   document.getElementById('btn-add-char').addEventListener('click', addCharacter);
@@ -257,21 +178,16 @@ function addCharacter() {
   const inp  = document.getElementById('char-name-input');
   const name = inp.value.trim();
   if (!name || characters.includes(name)) { inp.value = ''; return; }
-  characters.push(name);
-  inp.value = '';
-  saveCharacters();
-  renderCharList();
-  // Fix4: 씬 재파싱
+  characters.push(name); inp.value = '';
+  saveCharacters(); renderCharList();
   const raw = document.getElementById('prompt-input').value.trim();
   if (raw) { scenes = parseScenes(raw); renderSceneList(); }
 }
 
 function removeCharacter(name) {
   characters = characters.filter(c => c !== name);
-  saveCharacters();
-  renderCharList();
+  saveCharacters(); renderCharList();
 }
-
 function saveCharacters() { chrome.storage.local.set({ characters }); }
 
 function renderCharList() {
@@ -286,9 +202,7 @@ function renderCharList() {
   });
 }
 
-/* ════════════════════════════════════════════════
-   씬 배정 패널
-════════════════════════════════════════════════ */
+/* ── 씬 배정 ────────────────────────────────────── */
 function initSceneAssign() {
   document.getElementById('btn-sel-all').addEventListener('click', () => {
     scenes.forEach(s => s.enabled = true); renderSceneList();
@@ -309,9 +223,9 @@ function renderSceneList() {
   }
 
   scenes.forEach((scene, si) => {
-    // Fix3: dot ID 생성
+    // Fix3: dot ID
     const charDots = scene.characters.map(c =>
-      `<div class="sdot" id="sdot-${si}-char-${escAttr(c)}" title="CHAR: ${escAttr(c)}"></div>`
+      `<div class="sdot" id="sdot-${si}-char-${escAttr(c)}" title="CHAR:${escAttr(c)}"></div>`
     ).join('');
     const bgDot   = `<div class="sdot" id="sdot-${si}-bg"   title="BG"></div>`;
     const fullDot = `<div class="sdot" id="sdot-${si}-full" title="FULL"></div>`;
@@ -327,8 +241,7 @@ function renderSceneList() {
       : '<span style="color:#64748b;font-size:10px;">캐릭터 없음</span>';
 
     const card = document.createElement('div');
-    card.className = 'scene-card';
-    card.id        = `scene-card-${si}`;
+    card.className = 'scene-card'; card.id = `scene-card-${si}`;
     card.innerHTML = `
       <div class="scene-card-header">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
@@ -345,7 +258,7 @@ function renderSceneList() {
   });
 }
 
-/* ── Fix3: dot 상태 업데이트 ────────────────────── */
+/* ── Fix3: dot 업데이트 ──────────────────────────── */
 function updateDot(dotId, status) {
   if (!dotId) return;
   const el = document.getElementById(dotId);
@@ -354,19 +267,15 @@ function updateDot(dotId, status) {
   if (status) el.classList.add(status);
 }
 
-/* ── 씬 카드 강조 (Fix2) ─────────────────────────── */
+/* ── Fix2: 씬 카드 강조 ──────────────────────────── */
 function highlightScene(si) {
   document.querySelectorAll('.scene-card').forEach(c => c.classList.remove('active-scene'));
   const card = document.getElementById(`scene-card-${si}`);
-  if (card) {
-    card.classList.add('active-scene');
-    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-  // dot → working
+  if (card) { card.classList.add('active-scene'); card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
   const scene = scenes[si];
   if (scene) {
     scene.characters.forEach(c => updateDot(`sdot-${si}-char-${c}`, 'working'));
-    updateDot(`sdot-${si}-bg`,   'working');
+    updateDot(`sdot-${si}-bg`, 'working');
     updateDot(`sdot-${si}-full`, 'working');
   }
   document.querySelector('[data-tab="scenes"]').click();
@@ -375,7 +284,6 @@ function highlightScene(si) {
 function toggleScene(si, checked) {
   if (scenes[si]) { scenes[si].enabled = checked; totalAssets = calcTotalAssets(); updateProgress(); }
 }
-
 function toggleSceneChar(si, charName, checked) {
   if (!scenes[si]) return;
   if (checked && !scenes[si].characters.includes(charName)) scenes[si].characters.push(charName);
@@ -383,11 +291,9 @@ function toggleSceneChar(si, charName, checked) {
   totalAssets = calcTotalAssets(); updateProgress();
 }
 
-/* ════════════════════════════════════════════════
-   설정
-════════════════════════════════════════════════ */
+/* ── 설정 ───────────────────────────────────────── */
 function initSettings() {
-  chrome.storage.local.get(['settings'], (r) => {
+  chrome.storage.local.get(['settings'], r => {
     if (r.settings) settings = { ...settings, ...r.settings };
     applySettingsToUI();
   });
@@ -403,15 +309,15 @@ function initSettings() {
 }
 
 function applySettingsToUI() {
-  document.getElementById('setting-model').value       = settings.model       || 'imagen-3';
-  document.getElementById('setting-ratio').value       = settings.ratio       || '16:9';
-  document.getElementById('setting-count').value       = settings.count       || 1;
-  document.getElementById('setting-concurrency').value = settings.concurrency || 1;
-  document.getElementById('setting-retries').value     = settings.retries     || 2;
-  document.getElementById('setting-delay').value       = settings.delay       || 3000;
-  document.getElementById('setting-prefix').value      = settings.prefix      || 'TF_';
-  document.getElementById('setting-folder').value      = settings.folder      || 'Google_Flow_Saved';
-  document.getElementById('setting-lang').value        = settings.lang        || 'ko';
+  document.getElementById('setting-model').value       = settings.model        || 'imagen-3';
+  document.getElementById('setting-ratio').value       = settings.ratio        || '16:9';
+  document.getElementById('setting-count').value       = settings.count        || 1;
+  document.getElementById('setting-concurrency').value = settings.concurrency  || 1;
+  document.getElementById('setting-retries').value     = settings.retries      || 2;
+  document.getElementById('setting-delay').value       = settings.delay        || 3000;
+  document.getElementById('setting-prefix').value      = settings.prefix       || 'TF_';
+  document.getElementById('setting-folder').value      = settings.folder       || 'Google_Flow_Saved';
+  document.getElementById('setting-lang').value        = settings.lang         || 'ko';
   const tog = document.getElementById('toggle-autodl');
   settings.autoDownload ? tog.classList.add('on') : tog.classList.remove('on');
   document.getElementById('toggle-autodl-text').textContent = settings.autoDownload ? 'ON' : 'OFF';
@@ -419,38 +325,32 @@ function applySettingsToUI() {
 
 function saveSettings() {
   settings = {
-    model:       document.getElementById('setting-model').value,
-    ratio:       document.getElementById('setting-ratio').value,
-    count:       parseInt(document.getElementById('setting-count').value)       || 1,
-    concurrency: parseInt(document.getElementById('setting-concurrency').value) || 1,
-    retries:     parseInt(document.getElementById('setting-retries').value)     || 2,
-    delay:       parseInt(document.getElementById('setting-delay').value)       || 3000,
-    autoDownload:document.getElementById('toggle-autodl').classList.contains('on'),
-    prefix:      document.getElementById('setting-prefix').value               || 'TF_',
-    folder:      document.getElementById('setting-folder').value               || 'Google_Flow_Saved',
-    lang:        document.getElementById('setting-lang').value                 || 'ko'
+    model:        document.getElementById('setting-model').value,
+    ratio:        document.getElementById('setting-ratio').value,
+    count:        parseInt(document.getElementById('setting-count').value)       || 1,
+    concurrency:  parseInt(document.getElementById('setting-concurrency').value) || 1,
+    retries:      parseInt(document.getElementById('setting-retries').value)     || 2,
+    delay:        parseInt(document.getElementById('setting-delay').value)       || 3000,
+    autoDownload: document.getElementById('toggle-autodl').classList.contains('on'),
+    prefix:       document.getElementById('setting-prefix').value               || 'TF_',
+    folder:       document.getElementById('setting-folder').value               || 'Google_Flow_Saved',
+    lang:         document.getElementById('setting-lang').value                 || 'ko'
   };
   chrome.storage.local.set({ settings });
 }
 
-/* ════════════════════════════════════════════════
-   컨트롤 버튼 (Fix6: flex row)
-════════════════════════════════════════════════ */
+/* ── 컨트롤 버튼 ────────────────────────────────── */
 function initControls() {
   document.getElementById('btn-start').addEventListener('click', () => {
     if (isRunning) return;
     const enabledScenes = scenes.filter(s => s.enabled);
     if (enabledScenes.length === 0) { addLog('error', '활성화된 씬이 없습니다'); return; }
     saveSettings();
-    doneCount   = 0;
-    totalAssets = calcTotalAssets();
-    updateProgress();
+    doneCount = 0; totalAssets = calcTotalAssets(); updateProgress();
     Object.keys(savedAssets).forEach(k => delete savedAssets[k]);
-    isRunning = true;
-    updateBtnState();
-    chrome.runtime.sendMessage({
-      action: 'START', payload: { scenes: enabledScenes, settings }
-    }).catch(() => { isRunning = false; updateBtnState(); addLog('error', '백그라운드 연결 실패'); });
+    isRunning = true; updateBtnState();
+    chrome.runtime.sendMessage({ action: 'START', payload: { scenes: enabledScenes, settings } })
+      .catch(() => { isRunning = false; updateBtnState(); addLog('error', '백그라운드 연결 실패'); });
     addLog('info', `▶ 시작: ${enabledScenes.length}개 씬`);
   });
 
@@ -468,8 +368,7 @@ function initControls() {
 
   document.getElementById('btn-reset').addEventListener('click', () => {
     isRunning = false; isPaused = false;
-    doneCount = 0; totalAssets = 0;
-    updateBtnState(); resetProgress();
+    doneCount = 0; totalAssets = 0; updateBtnState(); resetProgress();
     chrome.runtime.sendMessage({ action: 'RESET' }).catch(() => {});
     document.querySelectorAll('.sdot').forEach(d => d.className = 'sdot');
     document.querySelectorAll('.scene-card').forEach(c => c.classList.remove('active-scene'));
@@ -484,16 +383,13 @@ function updateBtnState() {
   document.getElementById('btn-reset').disabled = isRunning;
 }
 
-/* ════════════════════════════════════════════════
-   진행률
-════════════════════════════════════════════════ */
+/* ── 진행률 ─────────────────────────────────────── */
 function updateProgress() {
-  const pct  = totalAssets > 0 ? Math.round((doneCount / totalAssets) * 100) : 0;
+  const pct = totalAssets > 0 ? Math.round(doneCount / totalAssets * 100) : 0;
   document.getElementById('progress-bar').style.width  = pct + '%';
   document.getElementById('progress-text').textContent = `${doneCount} / ${totalAssets} 에셋 (${pct}%)`;
   document.getElementById('counter').textContent       = `${scenes.length} 씬 | ${doneCount}/${totalAssets}`;
 }
-
 function resetProgress() {
   doneCount = 0; totalAssets = 0;
   document.getElementById('progress-bar').style.width  = '0%';
@@ -501,139 +397,78 @@ function resetProgress() {
   document.getElementById('counter').textContent       = '0 씬';
 }
 
-/* ════════════════════════════════════════════════
-   로그
-════════════════════════════════════════════════ */
+/* ── 로그 ───────────────────────────────────────── */
 function initLog() {
   document.getElementById('btn-clear-log').addEventListener('click', () => {
     document.getElementById('log-area').innerHTML = '';
   });
 }
-
 function addLog(type, msg) {
   const area = document.getElementById('log-area');
   const div  = document.createElement('div');
-  div.className = `log-entry ${type}`;
+  div.className   = `log-entry ${type}`;
   div.textContent = `[${new Date().toLocaleTimeString('ko-KR')}] ${msg}`;
   area.prepend(div);
   while (area.children.length > 300) area.removeChild(area.lastChild);
 }
 
-/* ════════════════════════════════════════════════
-   Fix9: CSV 내보내기
-════════════════════════════════════════════════ */
+/* ── Fix9: CSV ──────────────────────────────────── */
 function initCsv() {
   document.getElementById('csv-btn').addEventListener('click', downloadCsv);
 }
-
 function downloadCsv() {
   if (scenes.length === 0) { addLog('error', 'CSV: 씬이 없습니다'); return; }
-
   const rows = ['\uFEFFScene_No,Character,Image_Prompt,Voice_Script,Asset_Paths'];
   scenes.forEach((scene, si) => {
     const sceneNo  = String(scene.no).padStart(2, '0');
     const charList = scene.characters.length > 0 ? scene.characters.join('|') : '(없음)';
-    const prompt   = escCsv(scene.prompt);
     const voiceM   = scene.prompt.match(/\[([^\]]*(?:대사|voice|script)[^\]]*)\]/i);
     const voice    = voiceM ? escCsv(voiceM[1]) : '';
-    const assets   = escCsv((savedAssets[si] || []).join('|'));
-    rows.push(`${sceneNo},${escCsv(charList)},${prompt},${voice},${assets}`);
+    rows.push(`${sceneNo},${escCsv(charList)},${escCsv(scene.prompt)},${voice},${escCsv((savedAssets[si] || []).join('|'))}`);
   });
-
-  const csv     = rows.join('\r\n');
-  const blob    = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const objUrl  = URL.createObjectURL(blob);
-  const date    = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const fname   = `now_flow_scenes_${date}.csv`;
-
-  chrome.downloads.download(
-    { url: objUrl, filename: fname, saveAs: false, conflictAction: 'uniquify' },
-    () => { setTimeout(() => URL.revokeObjectURL(objUrl), 5000); addLog('success', `📊 CSV 저장: ${fname}`); }
-  );
+  const blob   = new Blob([rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const objUrl = URL.createObjectURL(blob);
+  const fname  = `now_flow_scenes_${new Date().toISOString().slice(0,10).replace(/-/g,'')}.csv`;
+  chrome.downloads.download({ url: objUrl, filename: fname, saveAs: false, conflictAction: 'uniquify' },
+    () => { setTimeout(() => URL.revokeObjectURL(objUrl), 5000); addLog('success', `📊 CSV 저장: ${fname}`); });
 }
-
 function escCsv(val) {
   if (val == null) return '';
   const s = String(val).replace(/"/g, '""');
   return /[,"\r\n]/.test(s) ? `"${s}"` : s;
 }
 
-/* ════════════════════════════════════════════════
-   Fix10 + Fix12: 체크리스트 자동 검증
-════════════════════════════════════════════════ */
+/* ── Fix10+12: 체크리스트 자동 검증 ─────────────── */
 function runChecklist() {
   const checks = [
-    {
-      id: 1, desc: 'Fix1: chrome.scripting.executeScript + __nowFlowLoaded 가드',
-      test: () => true   // background.js에서 처리
-    },
-    {
-      id: 2, desc: 'Fix2: 씬 카드 active-scene 강조 + .catch(()=>{})',
-      test: () => typeof highlightScene === 'function'
-    },
-    {
-      id: 3, desc: 'Fix3: dot ID sdot-{si}-char-{name} / sdot-{si}-bg / sdot-{si}-full',
-      test: () => typeof updateDot === 'function'
-    },
-    {
-      id: 4, desc: 'Fix4: 캐릭터 자동 배정 (parseScenes 실시간)',
-      test: () => {
-        const oldChars = [...characters];
-        characters = ['엘리'];
-        const r = parseScenes('씬1\n프롬프트: 엘리가 숲을 걷는다\n[엘리]');
-        characters = oldChars;
-        return r.length > 0 && r[0].characters.includes('엘리');
-      }
-    },
-    {
-      id: 5, desc: 'Fix5: CHAR×N + BG + FULL 에셋 수 (2캐릭터→4개)',
-      test: () => {
-        const orig = scenes;
-        scenes = [{ enabled: true, characters: ['A', 'B'], prompt: 'test' }];
-        const n = calcTotalAssets();
-        scenes = orig;
-        return n === 4;   // CHAR×2 + BG + FULL
-      }
-    },
-    {
-      id: 6, desc: 'Fix6: matchAll + Set 씬 중복 방지',
-      test: () => {
-        const r = parseScenes('씬1\n씬1\n씬2\n씬2');
-        return r.length === 2;
-      }
-    },
-    {
-      id: 7, desc: 'Fix7: .ctrl-btns display:flex flex-direction:row',
-      test: () => {
-        const el = document.querySelector('.ctrl-btns');
-        if (!el) return false;
-        const s = window.getComputedStyle(el);
-        return s.display === 'flex' && s.flexDirection === 'row';
-      }
-    },
-    {
-      id: 8, desc: "Fix8: '프롬프트:' / 'Prompt:' 이후 텍스트만 추출",
-      test: () => {
-        const r = parseScenes('씬1\n프롬프트: 숲속 아침 햇살\n등장인물: [엘리]');
-        return r.length > 0 && r[0].prompt.includes('숲속 아침');
-      }
-    },
-    {
-      id: 9, desc: 'Fix9: CSV (Scene_No, Character, Image_Prompt, Voice_Script, Asset_Paths)',
-      test: () => typeof downloadCsv === 'function' && typeof escCsv === 'function'
-    },
-    {
-      id: 10, desc: 'Fix10: 내부 체크리스트 + addLog 에러 로그',
-      test: () => typeof addLog === 'function' && typeof runChecklist === 'function'
-    },
-    {
-      id: 11, desc: 'Fix11: 파일명 Scene01_TYPE_CHAR_TF_HHMMSS.png (content.js 처리)',
-      test: () => true
-    },
-    {
-      id: 12, desc: 'Fix12: 최종 검증 코드 - checklist-area 존재',
-      test: () => document.getElementById('checklist-area') !== null
-    }
+    { id: 1,  desc: 'Fix1: executeScript + __nowFlowLoaded 가드',           test: () => true },
+    { id: 2,  desc: 'Fix2: active-scene 강조 + .catch(()=>{})',             test: () => typeof highlightScene === 'function' },
+    { id: 3,  desc: 'Fix3: dot sdot-{si}-char-{name}/bg/full',              test: () => typeof updateDot === 'function' },
+    { id: 4,  desc: 'Fix4: 캐릭터 자동 배정 (parseScenes 실시간)',           test: () => {
+      const old = [...characters]; characters = ['엘리'];
+      const r = parseScenes('씬1\n프롬프트: 엘리가 걷는다\n[엘리]');
+      characters = old; return r.length > 0 && r[0].characters.includes('엘리');
+    }},
+    { id: 5,  desc: 'Fix5: CHAR×N + BG + FULL (2캐릭터→4에셋)',             test: () => {
+      const orig = scenes;
+      scenes = [{ enabled: true, characters: ['A','B'], prompt: 'test' }];
+      const n = calcTotalAssets(); scenes = orig; return n === 4;
+    }},
+    { id: 6,  desc: 'Fix6: matchAll + Set 씬 중복 방지',                    test: () => parseScenes('씬1\n씬1\n씬2\n씬2').length === 2 },
+    { id: 7,  desc: 'Fix7: .ctrl-btns display:flex flex-direction:row',      test: () => {
+      const el = document.querySelector('.ctrl-btns');
+      if (!el) return false;
+      const s = window.getComputedStyle(el);
+      return s.display === 'flex' && s.flexDirection === 'row';
+    }},
+    { id: 8,  desc: "Fix8: '프롬프트:'/'Prompt:' 이후 텍스트 추출",           test: () => {
+      const r = parseScenes('씬1\n프롬프트: 숲속 아침\n등장인물: [엘리]');
+      return r.length > 0 && r[0].prompt.includes('숲속 아침');
+    }},
+    { id: 9,  desc: 'Fix9: CSV (Scene_No,Character,Image_Prompt,Voice_Script,Asset_Paths)', test: () => typeof downloadCsv === 'function' },
+    { id: 10, desc: 'Fix10: 체크리스트 + addLog 에러 로그',                  test: () => typeof addLog === 'function' },
+    { id: 11, desc: 'Fix11: Scene01_TYPE_CHAR_TF_HHMMSS.png (content.js)',   test: () => true },
+    { id: 12, desc: 'Fix12: 최종 검증 checklist-area 존재',                  test: () => !!document.getElementById('checklist-area') },
   ];
 
   const area = document.getElementById('checklist-area');
@@ -641,37 +476,31 @@ function runChecklist() {
   let passed = 0;
 
   checks.forEach(ck => {
-    let ok = false, errMsg = '';
-    try { ok = ck.test(); } catch (e) { errMsg = e.message; }
+    let ok = false, err = '';
+    try { ok = ck.test(); } catch (e) { err = e.message; }
     if (ok) passed++;
     const div = document.createElement('div');
     div.className = 'check-item';
-    div.innerHTML = `
-      <span class="${ok ? 'check-ok' : 'check-fail'}">${ok ? '✅' : '❌'}</span>
-      <span class="check-desc">[${ck.id}] ${escHtml(ck.desc)}${errMsg ? ' — ' + escHtml(errMsg) : ''}</span>`;
+    div.innerHTML = `<span class="${ok ? 'check-ok' : 'check-fail'}">${ok ? '✅' : '❌'}</span>
+      <span class="check-desc">[${ck.id}] ${escHtml(ck.desc)}${err ? ' — '+escHtml(err) : ''}</span>`;
     area.appendChild(div);
   });
 
-  const summary = document.createElement('div');
-  summary.style.cssText = 'margin-top:8px;font-weight:bold;font-size:12px;';
-  const allPass = passed === checks.length;
-  summary.innerHTML = `<span style="color:${allPass ? '#22c55e' : '#f59e0b'};">${passed} / ${checks.length} 통과 ${allPass ? '🎉' : '⚠️'}</span>`;
-  area.appendChild(summary);
+  const sum = document.createElement('div');
+  sum.style.cssText = 'margin-top:8px;font-weight:bold;font-size:12px;';
+  const all = passed === checks.length;
+  sum.innerHTML = `<span style="color:${all ? '#22c55e' : '#f59e0b'};">${passed}/${checks.length} 통과 ${all ? '🎉' : '⚠️'}</span>`;
+  area.appendChild(sum);
 
-  addLog(allPass ? 'success' : 'info', `체크리스트: ${passed}/${checks.length} 통과`);
+  addLog(all ? 'success' : 'info', `체크리스트: ${passed}/${checks.length} 통과`);
 }
 
-/* ════════════════════════════════════════════════
-   유틸리티
-════════════════════════════════════════════════ */
+/* ── 유틸 ───────────────────────────────────────── */
 function escHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-function escAttr(s) { return String(s).replace(/['"><& ]/g, '_'); }
+function escAttr(s) { return String(s).replace(/['"><& ]/g,'_'); }
 
-// onclick 핸들러용 전역 노출
 window.removeCharacter = removeCharacter;
 window.toggleScene     = toggleScene;
 window.toggleSceneChar = toggleSceneChar;

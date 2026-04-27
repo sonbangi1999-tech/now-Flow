@@ -5,108 +5,59 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>now Flow</title>
 <style>
-/* ═══════════════════════════════════════════════
-   Fix7: body 100vh, overflow-y:auto only where needed
-═══════════════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Fix7: body 100vh, overflow hidden */
 body {
-  height: 100vh;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  background: #1a1b2e;
-  color: #e2e8f0;
+  height: 100vh; margin: 0;
+  display: flex; flex-direction: column;
+  background: #1a1b2e; color: #e2e8f0;
   font-family: 'Segoe UI', system-ui, sans-serif;
-  font-size: 13px;
-  overflow: hidden;
+  font-size: 13px; overflow: hidden;
 }
 
-/* ── 상태 바 ─────────────────────────────────── */
+/* 상태바 */
 #status-bar {
-  background: #0f1020;
-  padding: 4px 10px;
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-bottom: 1px solid #2d2e4a;
-  flex-shrink: 0;
+  background: #0f1020; padding: 4px 10px;
+  font-size: 11px; display: flex; align-items: center; gap: 6px;
+  border-bottom: 1px solid #2d2e4a; flex-shrink: 0;
 }
-#status-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: #ef4444;
-  transition: background 0.3s;
-}
+#status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; transition: background .3s; }
 #status-dot.connected { background: #22c55e; }
 #status-text { color: #94a3b8; }
 
-/* ── 헤더 ────────────────────────────────────── */
+/* 헤더 */
 header {
-  background: #0f1020;
-  padding: 8px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid #2d2e4a;
-  flex-shrink: 0;
+  background: #0f1020; padding: 8px 10px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid #2d2e4a; flex-shrink: 0;
 }
 header h1 { font-size: 15px; color: #22c55e; font-weight: 700; }
 #counter { font-size: 11px; color: #64748b; }
 
-/* ── 탭 바 ───────────────────────────────────── */
+/* 탭 바 */
 .tab-bar {
-  display: flex;
-  background: #0f1020;
-  border-bottom: 1px solid #2d2e4a;
-  flex-shrink: 0;
+  display: flex; background: #0f1020;
+  border-bottom: 1px solid #2d2e4a; flex-shrink: 0;
 }
 .tab {
-  flex: 1;
-  padding: 7px 2px;
-  text-align: center;
-  cursor: pointer;
-  font-size: 11px;
-  color: #64748b;
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
-  user-select: none;
+  flex: 1; padding: 7px 2px; text-align: center;
+  cursor: pointer; font-size: 11px; color: #64748b;
+  border-bottom: 2px solid transparent; transition: color .2s, border-color .2s; user-select: none;
 }
 .tab.active { color: #22c55e; border-bottom-color: #22c55e; }
 .tab:hover  { color: #a3e635; }
 
-/* ── 탭 콘텐츠 공통 ──────────────────────────── */
-.tab-content {
-  display: none;
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px;
-  flex-direction: column;
-  gap: 8px;
-}
+/* 탭 콘텐츠 */
+.tab-content { display: none; flex: 1; overflow-y: auto; padding: 10px; flex-direction: column; gap: 8px; }
 .tab-content.active { display: flex; }
 
-/* ── 공통 요소 ───────────────────────────────── */
-.section-label {
-  font-size: 11px;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 4px;
-}
-.btn {
-  padding: 6px 10px;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  transition: opacity 0.2s;
-}
-.btn:hover  { opacity: 0.85; }
-.btn:active { opacity: 0.7;  }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+/* 공통 */
+.section-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.btn { padding: 6px 10px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600; transition: opacity .2s; }
+.btn:hover  { opacity: .85; }
+.btn:active { opacity: .7; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn-primary   { background: #22c55e; color: #000; }
 .btn-secondary { background: #2d2e4a; color: #e2e8f0; }
 .btn-danger    { background: #ef4444; color: #fff; }
@@ -114,157 +65,88 @@ header h1 { font-size: 15px; color: #22c55e; font-weight: 700; }
 .btn-blue      { background: #1d4ed8; color: #fff; }
 .btn-row { display: flex; gap: 6px; }
 
-/* ── 프롬프트 탭 ──────────────────────────────── */
+/* 프롬프트 */
 textarea#prompt-input {
-  width: 100%;
-  min-height: 130px;
-  background: #0f1020;
-  border: 1px solid #2d2e4a;
-  border-radius: 6px;
-  color: #e2e8f0;
-  font-size: 12px;
-  padding: 8px;
-  resize: vertical;
-  font-family: inherit;
+  width: 100%; min-height: 130px;
+  background: #0f1020; border: 1px solid #2d2e4a; border-radius: 6px;
+  color: #e2e8f0; font-size: 12px; padding: 8px; resize: vertical; font-family: inherit;
 }
 textarea#prompt-input:focus { outline: none; border-color: #22c55e; }
 
-/* ── 캐릭터 패널 ──────────────────────────────── */
-.char-header { display: flex; align-items: center; justify-content: space-between; }
-#char-list   { display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; }
-.char-item   {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 6px; background: #0f1020; border-radius: 4px;
-}
+/* 캐릭터 패널 */
+#char-list { display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; }
+.char-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: #0f1020; border-radius: 4px; }
 .char-item span { flex: 1; font-size: 12px; }
-.char-item button {
-  background: none; border: none; color: #ef4444;
-  cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px;
-}
+.char-item button { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; }
 #char-input-row { display: flex; gap: 6px; margin-top: 4px; }
 #char-name-input {
-  flex: 1; background: #0f1020; border: 1px solid #2d2e4a;
-  border-radius: 4px; color: #e2e8f0; padding: 5px 8px; font-size: 12px;
+  flex: 1; background: #0f1020; border: 1px solid #2d2e4a; border-radius: 4px;
+  color: #e2e8f0; padding: 5px 8px; font-size: 12px;
 }
 #char-name-input:focus { outline: none; border-color: #22c55e; }
 
-/* ── 씬 배정 패널 ────────────────────────────── */
+/* 씬 카드 */
 .scene-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-#scene-list   { display: flex; flex-direction: column; gap: 6px; }
-
-.scene-card {
-  background: #0f1020;
-  border: 1px solid #2d2e4a;
-  border-radius: 6px;
-  padding: 8px;
-  transition: border-color 0.3s;
-}
+#scene-list { display: flex; flex-direction: column; gap: 6px; }
+.scene-card { background: #0f1020; border: 1px solid #2d2e4a; border-radius: 6px; padding: 8px; transition: border-color .3s; }
 .scene-card.active-scene { border-color: #22c55e; box-shadow: 0 0 6px #22c55e44; }
-.scene-card-header {
-  display: flex; align-items: center;
-  justify-content: space-between; margin-bottom: 6px;
-}
-.scene-no     { font-size: 11px; font-weight: 700; color: #22c55e; }
-.scene-dots   { display: flex; gap: 4px; flex-wrap: wrap; }
+.scene-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.scene-no { font-size: 11px; font-weight: 700; color: #22c55e; }
+.scene-dots { display: flex; gap: 4px; flex-wrap: wrap; }
 
-/* ── Fix3: dot ──────────────────────────────── */
-.sdot {
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  background: #2d2e4a;
-  transition: background 0.3s;
-  cursor: default;
-}
+/* Fix3: dot */
+.sdot { width: 10px; height: 10px; border-radius: 50%; background: #2d2e4a; transition: background .3s; cursor: default; }
 .sdot.working { background: #f59e0b; animation: pulse 1s infinite; }
 .sdot.done    { background: #22c55e; }
 .sdot.error   { background: #ef4444; }
-@keyframes pulse {
-  0%,100% { opacity: 1; }
-  50%      { opacity: 0.4; }
-}
-.scene-prompt {
-  font-size: 11px; color: #64748b;
-  white-space: pre-wrap; word-break: break-all;
-  max-height: 50px; overflow: hidden;
-}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+.scene-prompt { font-size: 11px; color: #64748b; white-space: pre-wrap; word-break: break-all; max-height: 50px; overflow: hidden; }
 .scene-chars  { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.char-tag {
-  display: flex; align-items: center; gap: 3px;
-  background: #1e2a3a; border-radius: 3px; padding: 2px 5px; font-size: 10px;
-}
+.char-tag { display: flex; align-items: center; gap: 3px; background: #1e2a3a; border-radius: 3px; padding: 2px 5px; font-size: 10px; }
 .char-tag input[type="checkbox"] { accent-color: #22c55e; }
 
-/* ── 진행률 ──────────────────────────────────── */
-#progress-section {
-  padding: 8px 10px;
-  border-top: 1px solid #2d2e4a;
-  flex-shrink: 0;
-}
+/* 진행률 */
+#progress-section { padding: 8px 10px; border-top: 1px solid #2d2e4a; flex-shrink: 0; }
 #progress-bar-wrap { background: #2d2e4a; border-radius: 4px; height: 6px; overflow: hidden; }
-#progress-bar { height: 100%; background: #22c55e; width: 0%; transition: width 0.4s; }
+#progress-bar { height: 100%; background: #22c55e; width: 0%; transition: width .4s; }
 #progress-text { font-size: 11px; color: #64748b; margin-top: 3px; }
 
-/* ── Fix6: 가로 버튼 레이아웃 ────────────────── */
+/* Fix6: 가로 4버튼 레이아웃 */
 .ctrl-btns {
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-  padding: 8px 10px;
-  border-top: 1px solid #2d2e4a;
-  flex-shrink: 0;
+  display: flex; flex-direction: row; gap: 6px;
+  padding: 8px 10px; border-top: 1px solid #2d2e4a; flex-shrink: 0;
 }
 .ctrl-btns .btn { flex: 1; }
 
-/* ── 설정 탭 ─────────────────────────────────── */
-.setting-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 0; border-bottom: 1px solid #1e2030;
-}
+/* 설정 */
+.setting-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #1e2030; }
 .setting-row label { color: #94a3b8; font-size: 12px; }
-.setting-row select,
-.setting-row input[type="number"],
-.setting-row input[type="text"] {
+.setting-row select, .setting-row input[type="number"], .setting-row input[type="text"] {
   background: #0f1020; border: 1px solid #2d2e4a; border-radius: 4px;
   color: #e2e8f0; padding: 4px 6px; font-size: 12px; width: 120px;
 }
 .toggle-wrap { display: flex; align-items: center; gap: 6px; }
-.toggle {
-  width: 32px; height: 18px; background: #2d2e4a;
-  border-radius: 9px; position: relative; cursor: pointer; transition: background 0.2s;
-}
+.toggle { width: 32px; height: 18px; background: #2d2e4a; border-radius: 9px; position: relative; cursor: pointer; transition: background .2s; }
 .toggle.on { background: #22c55e; }
-.toggle::after {
-  content: ''; position: absolute;
-  width: 14px; height: 14px; background: #fff;
-  border-radius: 50%; top: 2px; left: 2px; transition: left 0.2s;
-}
+.toggle::after { content: ''; position: absolute; width: 14px; height: 14px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: left .2s; }
 .toggle.on::after { left: 16px; }
 
-/* ── 로그 탭 ─────────────────────────────────── */
-#log-area {
-  background: #0f1020; border-radius: 6px; padding: 8px;
-  font-size: 11px; font-family: monospace; overflow-y: auto;
-  flex: 1; min-height: 200px; color: #94a3b8;
-}
+/* 로그 */
+#log-area { background: #0f1020; border-radius: 6px; padding: 8px; font-size: 11px; font-family: monospace; overflow-y: auto; flex: 1; min-height: 200px; color: #94a3b8; }
 .log-entry { padding: 2px 0; border-bottom: 1px solid #1a1b2e; }
 .log-entry.error   { color: #ef4444; }
 .log-entry.success { color: #22c55e; }
 .log-entry.info    { color: #60a5fa; }
 
-/* ── 체크리스트 탭 ────────────────────────────── */
-#checklist-area {
-  background: #0f1020; border-radius: 6px; padding: 8px;
-  font-size: 11px; font-family: monospace; overflow-y: auto; flex: 1;
-}
-.check-item {
-  display: flex; align-items: flex-start;
-  gap: 6px; padding: 3px 0; border-bottom: 1px solid #1a1b2e;
-}
+/* 체크리스트 */
+#checklist-area { background: #0f1020; border-radius: 6px; padding: 8px; font-size: 11px; font-family: monospace; overflow-y: auto; flex: 1; }
+.check-item { display: flex; align-items: flex-start; gap: 6px; padding: 3px 0; border-bottom: 1px solid #1a1b2e; }
 .check-ok   { color: #22c55e; flex-shrink: 0; }
 .check-fail { color: #ef4444; flex-shrink: 0; }
 .check-desc { color: #94a3b8; font-size: 11px; }
 
-/* ── 스크롤바 ─────────────────────────────────── */
+/* 스크롤바 */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: #0f1020; }
 ::-webkit-scrollbar-thumb { background: #2d2e4a; border-radius: 2px; }
@@ -272,7 +154,7 @@ textarea#prompt-input:focus { outline: none; border-color: #22c55e; }
 </head>
 <body>
 
-<!-- 상태 바 -->
+<!-- 상태바 -->
 <div id="status-bar">
   <div id="status-dot"></div>
   <span id="status-text">연결 대기중…</span>
@@ -293,19 +175,17 @@ textarea#prompt-input:focus { outline: none; border-color: #22c55e; }
   <div class="tab" data-tab="info">✅ 체크</div>
 </div>
 
-<!-- ══ 탭: 프롬프트 ══════════════════════════════ -->
+<!-- ══ 프롬프트 탭 ══ -->
 <div class="tab-content active" id="tab-prompt">
   <div>
     <div class="section-label">씬 프롬프트 입력</div>
     <textarea id="prompt-input"
-      placeholder="씬1&#10;프롬프트: 숲속 아침, 햇살이 비치는 마법의 숲&#10;등장인물: [엘리], [아론]&#10;&#10;씬2&#10;프롬프트: 낡은 성의 내부, 촛불이 흔들리는 복도&#10;등장인물: [아론]"></textarea>
+      placeholder="씬1&#10;프롬프트: 숲속 아침, 마법의 숲&#10;등장인물: [엘리], [아론]&#10;&#10;씬2&#10;프롬프트: 낡은 성 복도, 촛불&#10;등장인물: [아론]"></textarea>
   </div>
   <div class="btn-row">
-    <button class="btn btn-primary" id="btn-load" style="flex:1">📂 씬 파싱</button>
+    <button class="btn btn-primary"   id="btn-load"  style="flex:1">📂 씬 파싱</button>
     <button class="btn btn-secondary" id="btn-clear" style="flex:1">🗑 초기화</button>
   </div>
-
-  <!-- 캐릭터 에셋 패널 -->
   <div>
     <div class="section-label">등록 캐릭터</div>
     <div id="char-list"></div>
@@ -316,7 +196,7 @@ textarea#prompt-input:focus { outline: none; border-color: #22c55e; }
   </div>
 </div>
 
-<!-- ══ 탭: 씬 배정 ══════════════════════════════ -->
+<!-- ══ 씬 탭 ══ -->
 <div class="tab-content" id="tab-scenes">
   <div class="scene-header">
     <div class="section-label">씬 목록</div>
@@ -329,7 +209,7 @@ textarea#prompt-input:focus { outline: none; border-color: #22c55e; }
   <button class="btn btn-blue" id="csv-btn" style="width:100%;margin-top:4px;">📊 CSV 내보내기</button>
 </div>
 
-<!-- ══ 탭: 설정 ══════════════════════════════════ -->
+<!-- ══ 설정 탭 ══ -->
 <div class="tab-content" id="tab-settings">
   <div class="setting-row">
     <label>모델</label>
@@ -341,28 +221,14 @@ textarea#prompt-input:focus { outline: none; border-color: #22c55e; }
   <div class="setting-row">
     <label>비율</label>
     <select id="setting-ratio">
-      <option value="16:9">16:9</option>
-      <option value="9:16">9:16</option>
-      <option value="1:1">1:1</option>
-      <option value="4:3">4:3</option>
+      <option value="16:9">16:9</option><option value="9:16">9:16</option>
+      <option value="1:1">1:1</option><option value="4:3">4:3</option>
     </select>
   </div>
-  <div class="setting-row">
-    <label>생성 수</label>
-    <input type="number" id="setting-count" min="1" max="4" value="1">
-  </div>
-  <div class="setting-row">
-    <label>동시 실행</label>
-    <input type="number" id="setting-concurrency" min="1" max="5" value="1">
-  </div>
-  <div class="setting-row">
-    <label>재시도</label>
-    <input type="number" id="setting-retries" min="0" max="5" value="2">
-  </div>
-  <div class="setting-row">
-    <label>딜레이 (ms)</label>
-    <input type="number" id="setting-delay" min="500" max="10000" step="500" value="3000">
-  </div>
+  <div class="setting-row"><label>생성 수</label><input type="number" id="setting-count" min="1" max="4" value="1"></div>
+  <div class="setting-row"><label>동시 실행</label><input type="number" id="setting-concurrency" min="1" max="5" value="1"></div>
+  <div class="setting-row"><label>재시도</label><input type="number" id="setting-retries" min="0" max="5" value="2"></div>
+  <div class="setting-row"><label>딜레이 (ms)</label><input type="number" id="setting-delay" min="500" max="10000" step="500" value="3000"></div>
   <div class="setting-row">
     <label>자동 다운로드</label>
     <div class="toggle-wrap">
@@ -370,24 +236,17 @@ textarea#prompt-input:focus { outline: none; border-color: #22c55e; }
       <span id="toggle-autodl-text">ON</span>
     </div>
   </div>
-  <div class="setting-row">
-    <label>파일명 접두사</label>
-    <input type="text" id="setting-prefix" value="TF_">
-  </div>
-  <div class="setting-row">
-    <label>저장 폴더</label>
-    <input type="text" id="setting-folder" value="Google_Flow_Saved">
-  </div>
+  <div class="setting-row"><label>파일명 접두사</label><input type="text" id="setting-prefix" value="TF_"></div>
+  <div class="setting-row"><label>저장 폴더</label><input type="text" id="setting-folder" value="Google_Flow_Saved"></div>
   <div class="setting-row">
     <label>언어</label>
     <select id="setting-lang">
-      <option value="ko">한국어</option>
-      <option value="en">English</option>
+      <option value="ko">한국어</option><option value="en">English</option>
     </select>
   </div>
 </div>
 
-<!-- ══ 탭: 로그 ══════════════════════════════════ -->
+<!-- ══ 로그 탭 ══ -->
 <div class="tab-content" id="tab-log">
   <div class="btn-row" style="flex-shrink:0;">
     <button class="btn btn-outline" id="btn-clear-log" style="flex:1;">🗑 로그 지우기</button>
@@ -395,19 +254,19 @@ textarea#prompt-input:focus { outline: none; border-color: #22c55e; }
   <div id="log-area"></div>
 </div>
 
-<!-- ══ 탭: 체크리스트 ════════════════════════════ -->
+<!-- ══ 체크리스트 탭 ══ -->
 <div class="tab-content" id="tab-info">
   <div class="section-label" style="flex-shrink:0;">12가지 과제 체크리스트</div>
   <div id="checklist-area">로딩 중…</div>
 </div>
 
-<!-- ── 진행률 바 ─────────────────────────────── -->
+<!-- 진행률 -->
 <div id="progress-section">
   <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
   <div id="progress-text">준비됨</div>
 </div>
 
-<!-- Fix6: 가로 4버튼 레이아웃 -->
+<!-- Fix6: 가로 4버튼 -->
 <div class="ctrl-btns">
   <button class="btn btn-primary"   id="btn-start">▶ 시작</button>
   <button class="btn btn-secondary" id="btn-pause">⏸ 일시정지</button>

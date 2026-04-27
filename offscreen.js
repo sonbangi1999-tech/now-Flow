@@ -1,5 +1,6 @@
 // offscreen.js – now Flow v8.0  Offscreen Document
 // Blob 다운로드 처리 (click-free automatic save)
+// FIX-403: fetch+credentials → chrome.downloads 직접 폴백
 
 'use strict';
 
@@ -9,17 +10,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     try {
       let blob;
+      const filename = msg.filename || `nowflow_${Date.now()}.png`;
+
       if (msg.bytes && Array.isArray(msg.bytes)) {
+        // content.js 에서 이미 bytes로 변환해서 전달한 경우
         blob = new Blob([new Uint8Array(msg.bytes)], { type: msg.mimeType || 'image/png' });
+
       } else if (msg.url) {
-        // 방법1: fetch + credentials:'include' (세션 쿠키 포함 → 403 우회)
-        let resp = await fetch(msg.url, { credentials: 'include' }).catch(() => null);
-        if (!resp || !resp.ok) {
-          // 방법2: chrome.downloads 직접 (브라우저 세션 그대로 사용)
+        // FIX-403: fetch + credentials:'include' 우선 시도
+        let resp = null;
+        try {
+          resp = await fetch(msg.url, { credentials: 'include' });
+        } catch (_) { resp = null; }
+
+        if (resp && resp.ok) {
+          blob = await resp.blob();
+        } else {
+          // 폴백: chrome.downloads.download 직접 사용 (브라우저 세션 활용)
           const directId = await new Promise((resolve, reject) => {
             chrome.downloads.download(
-              { url: msg.url, filename: msg.filename || `nowflow_${Date.now()}.png`,
-                saveAs: false, conflictAction: 'uniquify' },
+              { url: msg.url, filename, saveAs: false, conflictAction: 'uniquify' },
               (id) => {
                 if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
                 else resolve(id);
@@ -27,21 +37,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             );
           });
           await waitForDownload(directId);
-          chrome.runtime.sendMessage({
-            action: 'SAVE_RESULT', success: true,
-            filename: msg.filename || '', downloadId: directId
-          }).catch(() => {});
-          sendResponse({ ok: true, filename: msg.filename });
+          chrome.runtime.sendMessage({ action: 'SAVE_RESULT', success: true, filename, downloadId: directId }).catch(() => {});
+          sendResponse({ ok: true, filename });
           return;
         }
-        blob = await resp.blob();
       } else {
         throw new Error('bytes 또는 url 이 없습니다');
       }
 
-      const objUrl   = URL.createObjectURL(blob);
-      const filename = msg.filename || `nowflow_${Date.now()}.png`;
-
+      // Blob → objectURL → chrome.downloads
+      const objUrl = URL.createObjectURL(blob);
       const downloadId = await new Promise((resolve, reject) => {
         chrome.downloads.download(
           { url: objUrl, filename, saveAs: false, conflictAction: 'uniquify' },
@@ -55,16 +60,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       await waitForDownload(downloadId);
       URL.revokeObjectURL(objUrl);
 
-      chrome.runtime.sendMessage({
-        action: 'SAVE_RESULT', success: true, filename, downloadId
-      }).catch(() => {});
-
+      chrome.runtime.sendMessage({ action: 'SAVE_RESULT', success: true, filename, downloadId }).catch(() => {});
       sendResponse({ ok: true, filename });
+
     } catch (e) {
       console.error('[nowFlow offscreen] download error:', e);
-      chrome.runtime.sendMessage({
-        action: 'SAVE_RESULT', success: false, error: e.message, filename: msg.filename || ''
-      }).catch(() => {});
+      chrome.runtime.sendMessage({ action: 'SAVE_RESULT', success: false, error: e.message, filename: msg.filename || '' }).catch(() => {});
       sendResponse({ ok: false, error: e.message });
     }
   })();
@@ -87,4 +88,4 @@ function waitForDownload(downloadId, timeout = 60000) {
   });
 }
 
-console.log('[nowFlow offscreen] ready');
+console.log('[nowFlow offscreen] ready v8.0');

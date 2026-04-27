@@ -1,6 +1,6 @@
 // background.js – now Flow v8.0  Service Worker
 // Fix1: chrome.scripting.executeScript + window.__nowFlowLoaded 중복 방지
-// Fix2: 단방향 메시지 + .catch(()=>{}) 전처리
+// Fix2: 단방향 메시지 + .catch(()=>{})
 
 'use strict';
 
@@ -50,7 +50,7 @@ function waitForTabReady(tabId, timeout = 10000) {
   });
 }
 
-/* ── Fix1: content.js 주입 (중복 방지) ──────────── */
+/* ── Fix1: content.js 주입 (window.__nowFlowLoaded 가드) ── */
 async function injectContentScript(tabId) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
@@ -82,13 +82,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true });
         return;
       }
-
       if (msg.action === 'SAVE_RESULT') {
         broadcast(msg);
         sendResponse({ ok: true });
         return;
       }
-
       if (['START','PAUSE','RESUME','STOP','RESET'].includes(msg.action)) {
         const tab = await getFlowTab();
         await injectContentScript(tab.id);
@@ -96,7 +94,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true });
         return;
       }
-
       sendResponse({ ok: false, error: 'unknown action' });
     } catch (e) {
       console.error('[nowFlow BG] error:', e);
@@ -106,7 +103,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true;
 });
 
-/* ── 탭 변경 감지 ────────────────────────────────── */
+/* ── 탭 변경 감지 → CONNECTED / DISCONNECTED ────── */
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if (!tab.url || !tab.url.includes('labs.google')) return;
   if (info.status === 'complete') {
