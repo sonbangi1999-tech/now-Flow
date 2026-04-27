@@ -35,13 +35,15 @@ Google Flow (https://labs.google/fx/tools/flow) 에서 AI 생성 이미지를 �
 | 11 | 12항목 `runChecklist()` 자동 검증 + `addLog` 에러 로그 | `sidepanel.js` |
 | 12 | `Scene01_CHAR_name_TF_HHMMSS.png` 파일명 (zero-padded) | `content.js` |
 
-## 🔴 추가 버그픽스: HTTP 403 에러
+---
 
-| 방법 | 설명 |
-|------|------|
-| **방법1** `canvas.toBlob()` | DOM 렌더된 `<img>`에서 픽셀 직접 추출 → 쿠키 불필요 |
-| **방법2** `fetch + credentials:'include'` | 브라우저 세션 쿠키 포함 → 403 우회 |
-| **방법3** `chrome.downloads.download(url)` | 브라우저 세션 직접 사용 |
+## 🔴 HTTP 403 에러 수정 (이미지 다운로드 3중 폴백)
+
+| 순서 | 방법 | 설명 |
+|------|------|------|
+| 1 | `canvas.toBlob()` | DOM에 렌더된 `<img>`에서 픽셀 직접 추출 → 쿠키 불필요 |
+| 2 | `fetch + credentials:'include'` | 브라우저 세션 쿠키 포함 → 403 우회 |
+| 3 | `chrome.downloads.download(url)` | 브라우저 세션 직접 사용 |
 
 ---
 
@@ -68,12 +70,11 @@ Google Flow (https://labs.google/fx/tools/flow) 에서 AI 생성 이미지를 �
 등장인물: [아론]
 ```
 
-### 2. 캐릭터 등록
-- 이름 입력 후 `＋` 버튼 클릭
-- 프롬프트에서 자동 감지
-
-### 3. 씬 파싱 → 시작
-- **📂 씬 파싱** → **씬 탭** 확인 → **▶ 시작**
+### 2. 캐릭터 등록 → 씬 파싱 → 시작
+- 캐릭터 이름 입력 후 `＋` 버튼
+- **📂 씬 파싱** 클릭
+- **씬 탭**에서 확인
+- **▶ 시작** 클릭
 
 ---
 
@@ -91,18 +92,31 @@ Downloads/
 
 ---
 
-## ⚙️ 설정
+## ⚙️ 설정 옵션
 
-| 항목 | 기본값 |
-|------|--------|
-| 모델 | Imagen 3 |
-| 비율 | 16:9 |
-| 재시도 | 2 |
-| 딜레이 | 3000ms |
-| 자동 다운로드 | ON |
-| 파일명 접두사 | `TF_` |
-| 저장 폴더 | `Google_Flow_Saved` |
+| 항목 | 기본값 | 설명 |
+|------|--------|------|
+| 모델 | Imagen 3 | 이미지 생성 모델 |
+| 비율 | 16:9 | 종횡비 |
+| 재시도 | 2 | 실패 시 재시도 횟수 |
+| 딜레이 | 3000ms | 씬 간 대기 시간 |
+| 자동 다운로드 | ON | 클릭 없이 자동 저장 |
+| 파일명 접두사 | `TF_` | 파일명 태그 |
+| 저장 폴더 | `Google_Flow_Saved` | Downloads 하위 폴더 |
 
 ---
 
-*now Flow v8.0 – genspark_ai_developer*
+## 🔑 권한 설명
+
+| 권한 | 이유 |
+|------|------|
+| `downloads` | 이미지 자동 저장 |
+| `storage` | 설정/캐릭터 영구 저장 |
+| `scripting` | content.js 동적 주입 |
+| `offscreen` | Blob 다운로드 처리 |
+| `sidePanel` | 사이드패널 UI |
+| `tabs` | Google Flow 탭 감지 |
+
+---
+
+*now Flow v8.0 — 12가지 과제 완전 구현 + 403 에러 수정*
