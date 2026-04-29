@@ -1,15 +1,13 @@
-// now Flow v8.1 - content.js
-// Fix1: __nowFlowLoaded guard | Fix3: dot IDs | Fix4: auto char assign
-// Fix5: CHAR/BG/FULL assets | Fix6: matchAll+Set dedup | Fix8: prompt extract
-// Fix11: zero-padded filenames | Fix12: verification
-// Fix403: crossOrigin 설정 + 다중 img 탐색 + blob URL 직접 처리
+// now Flow v8.2 - content.js
+// Feature5: CHAR×N + BG + FULL 3종 분리 생성 (캐릭터 2명 → 파일 4개)
+// Fix403: blob URL / crossOrigin canvas / fetch 4중 폴백
+// Fix1: __nowFlowLoaded guard | Fix11: zero-padded filenames
 
 (function () {
   'use strict';
-  // Fix1: 중복 로드 방지
   if (window.__nowFlowLoaded) return;
   window.__nowFlowLoaded = true;
-  console.log('[nowFlow] content.js v8.1 loaded');
+  console.log('[nowFlow] content.js v8.2 loaded');
 
   // ── 기본 설정 ────────────────────────────────────────────────────
   const DEFAULT = {
@@ -27,7 +25,7 @@
 
   let cfg = { ...DEFAULT };
   let isRunning = false;
-  let isPaused = false;
+  let isPaused  = false;
   let shouldStop = false;
 
   // ── 메시지 수신 ──────────────────────────────────────────────────
@@ -60,6 +58,7 @@
       const scene = scenes[si];
       notify('SCENE_START', { sceneIndex: si, sceneName: scene.name });
 
+      // Feature5: buildTasks 가 CHAR×N + BG + FULL 을 반드시 생성
       const tasks = buildTasks(scene, si);
       for (const task of tasks) {
         if (shouldStop) break;
@@ -73,25 +72,37 @@
     notify('ALL_DONE', {});
   }
 
-  // ── 태스크 빌드 (Fix5: CHAR×N + BG + FULL) ─────────────────────
+  // ── Feature5: 태스크 빌드 ────────────────────────────────────────
+  // 캐릭터가 N명이면: CHAR×N + BG(1) + FULL(1) = N+2 개
+  // 캐릭터가 없으면: BG(1) + FULL(1) = 2 개
   function buildTasks(scene, sceneIndex) {
     const tasks = [];
-    const chars = scene.characters || [];
+    const chars = Array.isArray(scene.characters) ? scene.characters : [];
+
+    // CHAR 태스크: 캐릭터별 크로마키 인물 단독 생성
     for (const char of chars) {
       tasks.push({ type: 'CHAR', charName: char, scene, sceneIndex });
     }
+    // BG 태스크: 배경만 (인물 없음)
     tasks.push({ type: 'BG', charName: null, scene, sceneIndex });
+    // FULL 태스크: 전체 합본 (모든 캐릭터 + 배경)
     tasks.push({ type: 'FULL', charName: null, scene, sceneIndex });
+
     return tasks;
   }
 
+  // Feature5: 총 에셋 수 = Σ(캐릭터 수 + 2)
   function countTotalAssets(scenes) {
-    return scenes.reduce((sum, s) => sum + (s.characters || []).length + 2, 0);
+    return scenes.reduce((sum, s) => {
+      const chars = Array.isArray(s.characters) ? s.characters : [];
+      return sum + chars.length + 2;
+    }, 0);
   }
 
   // ── 단일 태스크 실행 ─────────────────────────────────────────────
   async function runTask(task, si) {
     const { type, charName, scene } = task;
+    // dot ID: CHAR → sdot-{si}-char-{name}, BG → sdot-{si}-bg, FULL → sdot-{si}-full
     const dotKey = type === 'CHAR'
       ? `sdot-${si}-char-${charName}`
       : `sdot-${si}-${type.toLowerCase()}`;
@@ -99,7 +110,7 @@
     notify('DOT_UPDATE', { dotId: dotKey, status: 'running' });
 
     const prompt = buildPrompt(task);
-    let success = false;
+    let success  = false;
     let lastError = '';
 
     for (let attempt = 0; attempt <= cfg.retries; attempt++) {
@@ -115,12 +126,8 @@
             await downloadImage(imgSrc, fname);
           }
           notify('SAVE_RESULT', {
-            dotId: dotKey,
-            sceneIndex: si,
-            type,
-            charName,
-            filename: fname,
-            ok: true
+            dotId: dotKey, sceneIndex: si,
+            type, charName, filename: fname, ok: true
           });
           success = true;
           break;
@@ -134,11 +141,8 @@
 
     if (!success) {
       notify('SAVE_RESULT', {
-        dotId: dotKey,
-        sceneIndex: si,
-        type,
-        charName,
-        ok: false,
+        dotId: dotKey, sceneIndex: si,
+        type, charName, ok: false,
         error: lastError || 'Failed after retries'
       });
       notify('DOT_UPDATE', { dotId: dotKey, status: 'error' });
@@ -147,23 +151,24 @@
     }
   }
 
-  // ── 프롬프트 빌드 (Fix8) ──────────────────────────────────────────
+  // ── Feature5: 프롬프트 빌드 ──────────────────────────────────────
+  // CHAR: 크로마키 인물 단독 | BG: 배경만 | FULL: 합본
   function buildPrompt(task) {
     const { type, charName, scene } = task;
     const raw = extractPromptText(scene.prompt || '');
 
     if (type === 'CHAR') {
       return cfg.lang === 'ko'
-        ? `${raw}\n캐릭터: ${charName}, 전신 인물 중심, 배경 단순화`
-        : `${raw}\nCharacter: ${charName}, full body, simplified background`;
+        ? `${raw}\n캐릭터: ${charName}, 전신 단독 인물, 크로마키 배경(단색), 배경 최소화`
+        : `${raw}\nCharacter: ${charName}, full body solo, chroma key background, minimal background`;
     } else if (type === 'BG') {
       return cfg.lang === 'ko'
-        ? `${raw}\n배경만, 인물 없음, 환경/공간 강조`
-        : `${raw}\nBackground only, no characters, environment focus`;
-    } else {
+        ? `${raw}\n배경만, 인물 완전 없음, 환경·공간 강조`
+        : `${raw}\nBackground only, no characters at all, environment and space focus`;
+    } else { // FULL
       return cfg.lang === 'ko'
-        ? `${raw}\n전체 씬, 모든 캐릭터와 배경 포함`
-        : `${raw}\nFull scene, all characters and background included`;
+        ? `${raw}\n전체 씬 합본, 모든 캐릭터와 배경 포함`
+        : `${raw}\nFull scene composite, all characters and background included`;
     }
   }
 
@@ -190,18 +195,13 @@
 
     el.focus();
     if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-      const nativeInputValueSetter =
+      const setter =
         Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set ||
         Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-      if (nativeInputValueSetter) {
-        nativeInputValueSetter.call(el, text);
-      } else {
-        el.value = text;
-      }
-      el.dispatchEvent(new Event('input', { bubbles: true }));
+      if (setter) setter.call(el, text); else el.value = text;
+      el.dispatchEvent(new Event('input',  { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
-      // contenteditable
       el.focus();
       document.execCommand('selectAll', false, null);
       document.execCommand('insertText', false, text);
@@ -212,32 +212,29 @@
 
   async function clickGenerate() {
     const btns = [...document.querySelectorAll('button')];
-    const generateBtn = btns.find(b => {
+    const btn = btns.find(b => {
       const t = (b.textContent || '').toLowerCase().trim();
       return t.includes('generate') || t.includes('생성') ||
-             t.includes('create') || t.includes('만들기');
+             t.includes('create')   || t.includes('만들기');
     });
-    if (!generateBtn) throw new Error('Generate button not found');
-    generateBtn.click();
+    if (!btn) throw new Error('Generate button not found');
+    btn.click();
     await sleep(500);
   }
 
   async function waitForNewImage(timeout = 15000) {
-    const start = Date.now();
-    // 현재 존재하는 이미지 src 스냅샷 (blob URL 포함)
+    const start  = Date.now();
     const before = new Set(
       [...document.querySelectorAll('img')]
         .map(i => i.src)
-        .filter(s => s && s.length > 0)
+        .filter(Boolean)
     );
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const check = () => {
-        const imgs = [...document.querySelectorAll('img')];
-        for (const img of imgs) {
+        for (const img of document.querySelectorAll('img')) {
           const src = img.src;
           if (!src || before.has(src)) continue;
-          // 새로운 이미지: http URL 또는 blob URL 모두 허용
           if (src.startsWith('http') || src.startsWith('blob:')) {
             observer.disconnect();
             clearTimeout(timer);
@@ -251,108 +248,70 @@
           resolve(null);
         }
       };
-
       const observer = new MutationObserver(check);
       observer.observe(document.body, {
         childList: true, subtree: true,
         attributes: true, attributeFilter: ['src']
       });
-      const timer = setTimeout(() => {
-        observer.disconnect();
-        resolve(null);
-      }, timeout);
+      const timer = setTimeout(() => { observer.disconnect(); resolve(null); }, timeout);
     });
   }
 
-  // ── 이미지 다운로드 (Fix403: 4중 폴백) ──────────────────────────
+  // ── 이미지 다운로드 (4중 폴백, Fix403) ──────────────────────────
   async function downloadImage(imgSrc, filename) {
-
-    // 방법0: blob: URL인 경우 → fetch로 Blob 직접 읽기 (403 없음)
+    // 방법0: blob: URL → fetch 직접
     if (imgSrc.startsWith('blob:')) {
       try {
         const res = await fetch(imgSrc);
         if (res.ok) {
-          const buf = await res.arrayBuffer();
-          const bytes = Array.from(new Uint8Array(buf));
-          await chrome.runtime.sendMessage({
-            action: 'OFFSCREEN_DOWNLOAD',
-            bytes,
-            filename,
-            folder: cfg.folder
-          });
+          const bytes = Array.from(new Uint8Array(await res.arrayBuffer()));
+          await sendDownload({ bytes, filename });
           return;
         }
-      } catch (e) {
-        console.warn('[nowFlow] blob fetch failed:', e.message);
-      }
+      } catch (e) { console.warn('[nowFlow] blob fetch failed:', e.message); }
     }
 
-    // 방법1: canvas.toBlob() - crossOrigin 설정 후 재로드하여 픽셀 추출
+    // 방법1: crossOrigin canvas
     try {
       const bytes = await fetchViaCanvas(imgSrc);
       if (bytes && bytes.length > 0) {
-        await chrome.runtime.sendMessage({
-          action: 'OFFSCREEN_DOWNLOAD',
-          bytes: Array.from(bytes),
-          filename,
-          folder: cfg.folder
-        });
+        await sendDownload({ bytes: Array.from(bytes), filename });
         return;
       }
-    } catch (e) {
-      console.warn('[nowFlow] canvas method failed:', e.message);
-    }
+    } catch (e) { console.warn('[nowFlow] canvas failed:', e.message); }
 
-    // 방법2: fetch with credentials (쿠키 포함, CORS)
+    // 방법2: fetch cors + credentials
     try {
-      const res = await fetch(imgSrc, {
-        credentials: 'include',
-        cache: 'no-store',
-        mode: 'cors'
-      });
+      const res = await fetch(imgSrc, { credentials: 'include', cache: 'no-store', mode: 'cors' });
       if (res.ok) {
-        const buf = await res.arrayBuffer();
-        const bytes = Array.from(new Uint8Array(buf));
-        await chrome.runtime.sendMessage({
-          action: 'OFFSCREEN_DOWNLOAD',
-          bytes,
-          filename,
-          folder: cfg.folder
-        });
+        const bytes = Array.from(new Uint8Array(await res.arrayBuffer()));
+        await sendDownload({ bytes, filename });
         return;
       }
-    } catch (e) {
-      console.warn('[nowFlow] fetch(cors) failed:', e.message);
-    }
+    } catch (e) { console.warn('[nowFlow] fetch cors failed:', e.message); }
 
-    // 방법3: fetch no-cors (헤더 없이 시도)
+    // 방법3: fetch no-cors
     try {
       const res = await fetch(imgSrc, { credentials: 'include', cache: 'no-store' });
       if (res.ok) {
-        const buf = await res.arrayBuffer();
-        const bytes = Array.from(new Uint8Array(buf));
-        await chrome.runtime.sendMessage({
-          action: 'OFFSCREEN_DOWNLOAD',
-          bytes,
-          filename,
-          folder: cfg.folder
-        });
+        const bytes = Array.from(new Uint8Array(await res.arrayBuffer()));
+        await sendDownload({ bytes, filename });
         return;
       }
-    } catch (e) {
-      console.warn('[nowFlow] fetch(no-cors) failed:', e.message);
-    }
+    } catch (e) { console.warn('[nowFlow] fetch no-cors failed:', e.message); }
 
-    // 방법4: URL을 offscreen에 넘겨 chrome.downloads로 직접 다운로드
-    await chrome.runtime.sendMessage({
+    // 방법4: URL 직접 전달 → offscreen chrome.downloads
+    await sendDownload({ url: imgSrc, filename });
+  }
+
+  function sendDownload(payload) {
+    return chrome.runtime.sendMessage({
       action: 'OFFSCREEN_DOWNLOAD',
-      url: imgSrc,
-      filename,
-      folder: cfg.folder
+      folder: cfg.folder,
+      ...payload
     });
   }
 
-  // Fix403: crossOrigin="anonymous" 설정 후 새 이미지 로드 → canvas 픽셀 추출
   function fetchViaCanvas(src) {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -360,55 +319,43 @@
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth;
+          canvas.width  = img.naturalWidth;
           canvas.height = img.naturalHeight;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0);
+          canvas.getContext('2d').drawImage(img, 0, 0);
           canvas.toBlob(blob => {
             if (!blob) { reject(new Error('toBlob failed')); return; }
-            blob.arrayBuffer()
-              .then(buf => resolve(new Uint8Array(buf)))
-              .catch(reject);
+            blob.arrayBuffer().then(buf => resolve(new Uint8Array(buf))).catch(reject);
           }, 'image/png');
-        } catch (e) {
-          reject(e);
-        }
+        } catch (e) { reject(e); }
       };
       img.onerror = () => reject(new Error('crossOrigin image load failed'));
-      // cache-busting은 하지 않음 (쿼리스트링이 403 유발 가능)
       img.src = src;
     });
   }
 
-  // ── 파일명 생성 (Fix11: 제로패딩) ───────────────────────────────
+  // ── 파일명 생성 (zero-padded) ────────────────────────────────────
   function buildFilename(sceneIndex, type, charName, prefix) {
-    const si = String(sceneIndex + 1).padStart(2, '0');
+    const si  = String(sceneIndex + 1).padStart(2, '0');
     const now = new Date();
-    const hms = [
-      String(now.getHours()).padStart(2, '0'),
-      String(now.getMinutes()).padStart(2, '0'),
-      String(now.getSeconds()).padStart(2, '0')
-    ].join('');
-    const dateStr = [
+    const hms = [now.getHours(), now.getMinutes(), now.getSeconds()]
+      .map(v => String(v).padStart(2, '0')).join('');
+    const date = [
       now.getFullYear(),
       String(now.getMonth() + 1).padStart(2, '0'),
       String(now.getDate()).padStart(2, '0')
     ].join('');
-    const safe = charName ? charName.replace(/[^a-zA-Z0-9가-힣]/g, '_') : '';
+    const safe   = charName ? charName.replace(/[^a-zA-Z0-9가-힣]/g, '_') : '';
     const folder = cfg.folder || 'Google_Flow_Saved';
-    if (type === 'CHAR' && safe) {
-      return `${folder}/${dateStr}/Scene${si}_CHAR_${safe}_${prefix}${hms}.png`;
-    } else {
-      return `${folder}/${dateStr}/Scene${si}_${type}_${prefix}${hms}.png`;
-    }
+    return type === 'CHAR' && safe
+      ? `${folder}/${date}/Scene${si}_CHAR_${safe}_${prefix}${hms}.png`
+      : `${folder}/${date}/Scene${si}_${type}_${prefix}${hms}.png`;
   }
 
-  // ── 알림 전송 ────────────────────────────────────────────────────
+  // ── 알림 ─────────────────────────────────────────────────────────
   function notify(type, data) {
     chrome.runtime.sendMessage({ action: type, ...data }).catch(() => {});
   }
 
-  // ── 유틸 ─────────────────────────────────────────────────────────
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 })();

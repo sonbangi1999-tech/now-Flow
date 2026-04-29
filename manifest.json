@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "now Flow - AI Image Auto Saver",
-  "version": "8.1",
-  "description": "Google Flow AI 이미지 자동 저장 확장 프로그램 (12가지 과제 완전 구현)",
+  "version": "8.2",
+  "description": "Google Flow AI 이미지 자동 저장 확장 프로그램 (v8.2 - 5가지 핵심 기능 통합)",
   "permissions": [
     "activeTab",
     "scripting",

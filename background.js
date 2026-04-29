@@ -1,5 +1,6 @@
-// now Flow v8.1 - background.js
-// Fix: offscreen relay 수정 / START URL 체크 완화 / tabs 권한 추가
+// now Flow v8.2 - background.js
+// Feature5: 씬당 CHAR×N + BG + FULL 3종 분리 생성 보장
+// Fix: offscreen relay / START URL 체크 완화 / ensureOffscreen 강화
 
 let offscreenCreated = false;
 
@@ -22,10 +23,9 @@ async function ensureOffscreen() {
   }
 }
 
-// ── content.js 주입 (guard: __nowFlowLoaded) ─────────────────────
+// ── content.js 주입 (__nowFlowLoaded guard) ──────────────────────
 async function injectContent(tabId) {
   try {
-    // guard: 이미 로드됐으면 스킵
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => window.__nowFlowLoaded === true
@@ -34,7 +34,6 @@ async function injectContent(tabId) {
       console.log('[nowFlow] content.js already loaded, skip inject');
       return { ok: true, skipped: true };
     }
-    // 주입
     await chrome.scripting.executeScript({
       target: { tabId },
       files: ['content.js']
@@ -45,6 +44,18 @@ async function injectContent(tabId) {
     console.error('[nowFlow] inject error:', e.message);
     return { ok: false, error: e.message };
   }
+}
+
+// ── Feature5: 씬 배열 검증 – 각 씬에 BG·FULL 보장 ───────────────
+// scenes 배열을 받아 characters 가 빈 경우도 BG+FULL 이 생성되도록
+// content.js buildTasks() 와 동일한 규칙으로 총 에셋 수 계산
+function validateScenes(scenes) {
+  if (!Array.isArray(scenes)) return [];
+  return scenes.map(scene => ({
+    ...scene,
+    // characters 없으면 빈 배열 보장 → BG+FULL 2개는 항상 생성
+    characters: Array.isArray(scene.characters) ? scene.characters : []
+  }));
 }
 
 // ── 사이드패널 열기 ──────────────────────────────────────────────
@@ -71,17 +82,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // ── OFFSCREEN_DOWNLOAD: content.js → background → offscreen ──
-  // [Fix] chrome.runtime.sendMessage는 offscreen에 도달하지 않음
-  //       → ensureOffscreen 후 chrome.tabs 대신 offscreen 전용 채널로 전달
+  // ── OFFSCREEN_DOWNLOAD ──
   if (action === 'OFFSCREEN_DOWNLOAD' || action === 'offscreen_download') {
-    // offscreen 자신이 보낸 메시지(SAVE_RESULT 재전송 방지)는 무시
     if (sender && sender.url && sender.url.includes('offscreen.html')) {
       return false;
     }
     ensureOffscreen().then(() => {
-      // offscreen document는 chrome.runtime.sendMessage로 수신 가능
-      // (service worker → offscreen: runtime.sendMessage 사용)
       chrome.runtime.sendMessage({
         ...msg,
         action: 'OFFSCREEN_DOWNLOAD',
@@ -92,20 +98,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // ── SAVE_RESULT: offscreen → sidepanel 브로드캐스트 ──
+  // ── SAVE_RESULT: offscreen → sidepanel relay ──
   if (action === 'SAVE_RESULT') {
-    // 사이드패널(extension page)으로 broadcast
-    chrome.runtime.sendMessage({ ...msg, _fromBackground: true })
-      .catch(() => {});
+    chrome.runtime.sendMessage({ ...msg, _fromBackground: true }).catch(() => {});
     sendResponse({ ok: true });
     return true;
   }
 
-  // ── START: content.js 주입 후 START 전달 ──
+  // ── START: Feature5 scenes 검증 후 content.js 주입 → 전달 ──
   if (action === 'START') {
     (async () => {
       try {
-        // Fix: labs.google 도메인 체크 완화 (서브도메인/경로 무관하게 허용)
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tabs || !tabs[0]) {
           sendResponse({ ok: false, error: 'No active tab' });
@@ -122,9 +125,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'inject failed: ' + injectResult.error });
           return;
         }
-        // 주입 직후 약간 대기 (content.js 초기화 시간)
+        // 주입 직후 대기
         await new Promise(r => setTimeout(r, 300));
-        await chrome.tabs.sendMessage(tab.id, msg);
+        // Feature5: scenes 검증 적용
+        const validatedMsg = {
+          ...msg,
+          scenes: validateScenes(msg.scenes || [])
+        };
+        await chrome.tabs.sendMessage(tab.id, validatedMsg);
         sendResponse({ ok: true });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
@@ -133,7 +141,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // ── PAUSE / RESUME / STOP / RESET → 현재 탭으로 전달 ──
+  // ── PAUSE / RESUME / STOP / RESET ──
   if (['PAUSE', 'RESUME', 'STOP', 'RESET'].includes(action)) {
     (async () => {
       try {
@@ -156,9 +164,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url && tab.url.includes('labs.google')) {
     console.log('[nowFlow] Google Flow tab detected:', tabId);
-    // 탭 업데이트 시 offscreen 준비
     ensureOffscreen().catch(() => {});
   }
 });
 
-console.log('[nowFlow] background.js v8.1 loaded');
+console.log('[nowFlow] background.js v8.2 loaded');
