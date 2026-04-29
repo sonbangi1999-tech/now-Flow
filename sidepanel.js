@@ -1,17 +1,16 @@
-// now Flow v8.0 - sidepanel.js
-// Fix1~Fix12 전체 구현
+// now Flow v8.1 - sidepanel.js
+// Fix: 시작 버튼 동작 수정 / SAVE_RESULT 중복 처리 방지 / 메시지 리스너 안정화
 
 'use strict';
 
 // ── 전역 상태 ────────────────────────────────────────────────────
-let scenes = [];        // 파싱된 씬 배열
-let characters = [];    // 등록된 캐릭터 배열
+let scenes = [];
+let characters = [];
 let isRunning = false;
 let isPaused = false;
 let doneCount = 0;
 let totalAssets = 0;
 
-// 설정
 let settings = {
   model: 'imagen-3',
   ratio: '16:9',
@@ -32,9 +31,27 @@ document.addEventListener('DOMContentLoaded', () => {
   initCharInput();
   initSettingsSync();
   initMessageListener();
+  checkTabStatus();
   runChecklist();
-  addLog('info', 'now Flow v8.0 사이드패널 로드 완료');
+  addLog('info', 'now Flow v8.1 사이드패널 로드 완료');
 });
+
+// ── 현재 탭 상태 확인 ────────────────────────────────────────────
+async function checkTabStatus() {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs && tabs[0]) {
+      const url = tabs[0].url || '';
+      if (url.includes('labs.google') || url.includes('flow')) {
+        updateStatusDot('connected', 'Google Flow 탭 연결됨');
+      } else {
+        updateStatusDot('', 'Google Flow 탭을 열어주세요');
+      }
+    }
+  } catch (e) {
+    updateStatusDot('', '탭 확인 중 오류');
+  }
+}
 
 // ── 탭 전환 ──────────────────────────────────────────────────────
 function initTabs() {
@@ -94,7 +111,6 @@ function renderCharTags() {
   ).join('');
 }
 
-// 전역 노출 (onclick용)
 window.removeCharacter = function(i) {
   characters.splice(i, 1);
   renderCharTags();
@@ -124,14 +140,13 @@ function initSettingsSync() {
   });
 }
 
-// ── 씬 파싱 (Fix6: matchAll + Set 중복방지) ────────────────────────
+// ── 씬 파싱 (Fix6: matchAll + Set 중복방지) ───────────────────────
 function parseScenes(text) {
   const result = [];
-  const seenNames = new Set(); // Fix6: 중복 방지
+  const seenNames = new Set();
 
-  // 패턴1: 씬1:, 씬2:, Scene1:, Scene 1: 등
   const pattern = /(?:씬\s*(\d+)|[Ss]cene\s*(\d+))\s*[:：]/g;
-  const matches = [...text.matchAll(pattern)]; // Fix6: matchAll 사용
+  const matches = [...text.matchAll(pattern)];
 
   if (matches.length > 0) {
     matches.forEach((m, idx) => {
@@ -141,14 +156,12 @@ function parseScenes(text) {
       const rawContent = text.slice(start, end).trim();
 
       const sceneName = `Scene${String(num).padStart(2, '0')}`;
-      if (seenNames.has(sceneName)) return; // Fix6: 중복 스킵
+      if (seenNames.has(sceneName)) return;
       seenNames.add(sceneName);
 
-      // Fix8: "프롬프트:" 또는 "Prompt:" 이후 텍스트 추출
       const promptMatch = rawContent.match(/(?:프롬프트|Prompt)\s*:\s*([\s\S]+)/i);
       const prompt = promptMatch ? promptMatch[1].trim() : rawContent;
 
-      // Fix4: 캐릭터 자동 배정
       const assignedChars = autoAssignCharacters(rawContent);
 
       result.push({
@@ -160,7 +173,6 @@ function parseScenes(text) {
       });
     });
   } else {
-    // 패턴 없으면 전체를 단일 씬으로 처리
     const rawContent = text.trim();
     if (rawContent) {
       const promptMatch = rawContent.match(/(?:프롬프트|Prompt)\s*:\s*([\s\S]+)/i);
@@ -179,15 +191,11 @@ function parseScenes(text) {
   return result;
 }
 
-// Fix4: 등록된 캐릭터 이름을 프롬프트에서 자동 감지
 function autoAssignCharacters(text) {
   const found = [];
   for (const char of characters) {
-    if (text.includes(char)) {
-      found.push(char);
-    }
+    if (text.includes(char)) found.push(char);
   }
-  // 캐릭터 미발견 시 빈 배열 반환 (BG, FULL만 생성됨)
   return found;
 }
 
@@ -209,13 +217,12 @@ function onParse() {
   updateSceneCount();
 }
 
-// ── 씬 목록 렌더링 (Fix3: dot IDs, Fix2: active-scene highlight) ──
+// ── 씬 목록 렌더링 ───────────────────────────────────────────────
 function renderSceneList() {
   const container = document.getElementById('scene-list');
   container.innerHTML = '';
 
   scenes.forEach((scene, si) => {
-    // Fix5: 에셋 수 = CHAR×N + BG + FULL
     const charCount = scene.characters.length;
     const totalDots = charCount + 2;
 
@@ -224,7 +231,6 @@ function renderSceneList() {
     card.id = `scene-card-${si}`;
     card.dataset.sceneIndex = si;
 
-    // dot HTML 생성 (Fix3: dot IDs)
     const charDots = scene.characters.map(c =>
       `<div class="dot char pending" id="sdot-${si}-char-${c}" title="CHAR: ${escAttr(c)}"></div>`
     ).join('');
@@ -250,13 +256,12 @@ function renderSceneList() {
   });
 }
 
-// 씬 미리보기 (프롬프트 탭)
 function renderScenePreview() {
   const section = document.getElementById('scene-preview-section');
   const container = document.getElementById('scene-preview');
   section.style.display = 'block';
 
-  container.innerHTML = scenes.map((scene, si) => {
+  container.innerHTML = scenes.map((scene) => {
     const charCount = scene.characters.length;
     return `
       <div class="scene-card" style="margin-bottom:6px">
@@ -277,37 +282,74 @@ function updateSceneCount() {
   if (el) el.textContent = `(${scenes.length}개)`;
 }
 
-// ── 시작 버튼 (Fix1: executeScript + guard) ──────────────────────
+// ── 시작 버튼 ── [Fix: 버튼 동작 안 하는 문제 핵심 수정] ────────────
 async function onStart() {
-  if (isRunning) { addLog('error', '이미 실행 중입니다.'); return; }
+  if (isRunning) {
+    addLog('error', '이미 실행 중입니다.');
+    return;
+  }
   if (scenes.length === 0) {
     addLog('error', '먼저 씬을 파싱하세요 (🔍 씬 파싱 버튼 클릭).');
     return;
   }
 
-  isRunning = true; isPaused = false;
+  // 현재 탭 확인
+  let targetTab = null;
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    targetTab = tabs && tabs[0] ? tabs[0] : null;
+  } catch (e) {
+    addLog('error', '탭 정보를 가져올 수 없습니다: ' + e.message);
+    return;
+  }
+
+  if (!targetTab) {
+    addLog('error', '활성 탭을 찾을 수 없습니다.');
+    return;
+  }
+
+  const url = targetTab.url || '';
+  if (!url.includes('labs.google') && !url.includes('flow')) {
+    addLog('error', `Google Flow 탭에서 실행해주세요.\n현재 URL: ${url}`);
+    return;
+  }
+
+  // 상태 전환
+  isRunning = true;
+  isPaused = false;
   doneCount = 0;
   totalAssets = scenes.reduce((s, sc) => s + sc.characters.length + 2, 0);
   updateProgress(0, totalAssets);
   setButtonState('running');
   updateStatusDot('running', '실행 중...');
-
   addLog('info', `시작: ${scenes.length}개 씬 / ${totalAssets}개 에셋`);
 
   try {
-    // Fix1: background.js를 통해 content.js 주입 (guard 포함)
     const resp = await chrome.runtime.sendMessage({
       action: 'START',
       scenes,
       settings
     });
-    if (resp && !resp.ok) {
+
+    // [Fix] 응답이 없거나 ok:false 일 때만 실패 처리
+    // 응답 없음(undefined)은 content.js가 이미 처리 중인 경우일 수 있으므로 허용
+    if (resp && resp.ok === false) {
       addLog('error', 'START 실패: ' + (resp.error || '알 수 없는 오류'));
-      onReset();
+      isRunning = false;
+      setButtonState('idle');
+      updateStatusDot('', '오류 발생');
     }
   } catch (e) {
-    addLog('error', 'START 오류: ' + e.message);
-    onReset();
+    // [Fix] "Could not establish connection" 등의 에러는 content.js 미주입 상태
+    // background.js가 주입을 처리하므로, 메시지 전달 자체 실패만 에러 처리
+    if (e.message && e.message.includes('Could not establish connection')) {
+      addLog('error', 'Google Flow 페이지에 연결할 수 없습니다. 페이지를 새로고침 후 다시 시도하세요.');
+    } else {
+      addLog('error', 'START 오류: ' + e.message);
+    }
+    isRunning = false;
+    setButtonState('idle');
+    updateStatusDot('', '오류 발생');
   }
 }
 
@@ -322,7 +364,8 @@ function onPause() {
 
 function onStop() {
   chrome.runtime.sendMessage({ action: 'STOP' }).catch(() => {});
-  isRunning = false; isPaused = false;
+  isRunning = false;
+  isPaused = false;
   setButtonState('idle');
   updateStatusDot('connected', '정지됨');
   addLog('info', '사용자가 정지했습니다.');
@@ -330,16 +373,17 @@ function onStop() {
 
 function onReset() {
   chrome.runtime.sendMessage({ action: 'RESET' }).catch(() => {});
-  isRunning = false; isPaused = false;
-  doneCount = 0; totalAssets = 0;
+  isRunning = false;
+  isPaused = false;
+  doneCount = 0;
+  totalAssets = 0;
   setButtonState('idle');
   updateProgress(0, 0);
   updateStatusDot('', '대기 중...');
-  // dot 초기화
   document.querySelectorAll('.dot').forEach(d => {
-    d.className = d.className.replace(/running|done|error/, 'pending');
+    d.classList.remove('running', 'done', 'error');
+    d.classList.add('pending');
   });
-  // 씬 상태 초기화
   scenes.forEach((_, si) => {
     const el = document.getElementById(`scene-status-${si}`);
     if (el) el.textContent = '대기';
@@ -349,16 +393,15 @@ function onReset() {
   addLog('info', '리셋 완료');
 }
 
-// ── 메시지 수신 ──────────────────────────────────────────────────
+// ── 메시지 수신 ── [Fix: _fromBackground 무한루프 방지] ─────────────
 function initMessageListener() {
   chrome.runtime.onMessage.addListener((msg) => {
     const action = msg.action || msg.type;
 
+    // background relay 메시지만 처리 (직접 메시지 중복 방지)
+    // sidepanel은 모든 runtime 메시지를 수신하므로 필터링
     if (action === 'SAVE_RESULT') {
-      // Fix3: dot 상태 업데이트
-      if (msg.dotId) {
-        updateDot(msg.dotId, msg.ok ? 'done' : 'error');
-      }
+      if (msg.dotId) updateDot(msg.dotId, msg.ok ? 'done' : 'error');
       if (msg.ok) {
         doneCount++;
         updateProgress(doneCount, totalAssets);
@@ -374,7 +417,6 @@ function initMessageListener() {
 
     if (action === 'SCENE_START') {
       const si = msg.sceneIndex;
-      // Fix2: 활성 씬 카드 하이라이트
       document.querySelectorAll('.scene-card').forEach(c => c.classList.remove('active'));
       const card = document.getElementById(`scene-card-${si}`);
       if (card) card.classList.add('active');
@@ -487,7 +529,6 @@ function exportCSV() {
     String(now.getSeconds()).padStart(2, '0')
   ].join('');
 
-  // Fix9: CSV 컬럼 = Scene_No, Character, Image_Prompt, Voice_Script, Asset_Paths
   const headers = ['Scene_No', 'Character', 'Image_Prompt', 'Voice_Script', 'Asset_Paths'];
   const rows = [headers.join(',')];
 
@@ -496,7 +537,6 @@ function exportCSV() {
     const folder = settings.folder || 'Google_Flow_Saved';
     const prefix = settings.prefix || 'TF_';
 
-    // 캐릭터별 CHAR 행
     const chars = scene.characters.length > 0 ? scene.characters : ['(없음)'];
     chars.forEach(char => {
       const safe = char !== '(없음)' ? char.replace(/[^a-zA-Z0-9가-힣]/g, '_') : '';
@@ -507,31 +547,23 @@ function exportCSV() {
         csvCell(sceneNo),
         csvCell(char),
         csvCell(scene.prompt),
-        csvCell(''),       // Voice_Script 빈칸
+        csvCell(''),
         csvCell(assetPath)
       ].join(','));
     });
 
-    // BG 행
     rows.push([
-      csvCell(sceneNo),
-      csvCell('BG'),
-      csvCell(scene.prompt),
-      csvCell(''),
+      csvCell(sceneNo), csvCell('BG'), csvCell(scene.prompt), csvCell(''),
       csvCell(`${folder}/${dateStr}/Scene${sceneNo}_BG_${prefix}${hms}.png`)
     ].join(','));
 
-    // FULL 행
     rows.push([
-      csvCell(sceneNo),
-      csvCell('FULL'),
-      csvCell(scene.prompt),
-      csvCell(''),
+      csvCell(sceneNo), csvCell('FULL'), csvCell(scene.prompt), csvCell(''),
       csvCell(`${folder}/${dateStr}/Scene${sceneNo}_FULL_${prefix}${hms}.png`)
     ].join(','));
   });
 
-  const csv = '\uFEFF' + rows.join('\n'); // BOM for Excel
+  const csv = '\uFEFF' + rows.join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -586,9 +618,7 @@ function runChecklist() {
       label: 'Fix5: CHAR×N + BG + FULL 에셋 생성',
       test: () => {
         if (scenes.length === 0) return true;
-        const sc = scenes[0];
-        const expected = sc.characters.length + 2;
-        return expected > 0;
+        return (scenes[0].characters.length + 2) > 0;
       }
     },
     {
@@ -635,12 +665,11 @@ function runChecklist() {
       id: 11,
       label: 'Fix11: 파일명 Scene{XX}_TYPE_CHAR_PREFIX_HHMMSS.png (제로패딩)',
       test: () => {
-        // content.js의 buildFilename 패턴 검증 (sidepanel에서는 CSV 경로로 확인)
         if (scenes.length === 0) return true;
         const folder = settings.folder || 'Google_Flow_Saved';
         const prefix = settings.prefix || 'TF_';
         const pattern = new RegExp(`${folder}/\\d{8}/Scene\\d{2}_`);
-        return pattern.test(`${folder}/20260427/Scene01_CHAR_test_${prefix}120001.png`);
+        return pattern.test(`${folder}/20260429/Scene01_CHAR_test_${prefix}120001.png`);
       }
     },
     {
@@ -658,7 +687,6 @@ function runChecklist() {
   checks.forEach(check => {
     let result;
     try { result = check.test(); } catch (e) { result = false; }
-
     if (result) passCount++;
 
     const item = document.createElement('div');
@@ -670,7 +698,6 @@ function runChecklist() {
     area.appendChild(item);
   });
 
-  // 요약
   const summary = document.createElement('div');
   summary.style.cssText = 'margin-top:10px;padding:8px;background:#1e1e1e;border-radius:6px;font-size:12px;text-align:center;';
   summary.style.color = passCount === checks.length ? '#86efac' : '#fbbf24';

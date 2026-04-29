@@ -1,23 +1,28 @@
-// now Flow v8.0 - background.js
-// Fix1: chrome.scripting.executeScript + window.__nowFlowLoaded guard
+// now Flow v8.1 - background.js
+// Fix: offscreen relay 수정 / START URL 체크 완화 / tabs 권한 추가
 
 let offscreenCreated = false;
 
 // ── 오프스크린 문서 생성 ──────────────────────────────────────────
 async function ensureOffscreen() {
-  if (offscreenCreated) return;
-  const existing = await chrome.offscreen.hasDocument().catch(() => false);
-  if (!existing) {
-    await chrome.offscreen.createDocument({
-      url: chrome.runtime.getURL('offscreen.html'),
-      reasons: ['BLOBS'],
-      justification: 'Blob download for now Flow'
-    });
+  try {
+    const existing = await chrome.offscreen.hasDocument();
+    if (!existing) {
+      await chrome.offscreen.createDocument({
+        url: chrome.runtime.getURL('offscreen.html'),
+        reasons: ['BLOBS'],
+        justification: 'Blob download for now Flow'
+      });
+    }
+    offscreenCreated = true;
+  } catch (e) {
+    console.error('[nowFlow] ensureOffscreen error:', e.message);
+    offscreenCreated = false;
+    throw e;
   }
-  offscreenCreated = true;
 }
 
-// ── content.js 주입 (Fix1: __nowFlowLoaded guard) ────────────────
+// ── content.js 주입 (guard: __nowFlowLoaded) ─────────────────────
 async function injectContent(tabId) {
   try {
     // guard: 이미 로드됐으면 스킵
@@ -66,36 +71,59 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // 오프스크린 다운로드
+  // ── OFFSCREEN_DOWNLOAD: content.js → background → offscreen ──
+  // [Fix] chrome.runtime.sendMessage는 offscreen에 도달하지 않음
+  //       → ensureOffscreen 후 chrome.tabs 대신 offscreen 전용 채널로 전달
   if (action === 'OFFSCREEN_DOWNLOAD' || action === 'offscreen_download') {
+    // offscreen 자신이 보낸 메시지(SAVE_RESULT 재전송 방지)는 무시
+    if (sender && sender.url && sender.url.includes('offscreen.html')) {
+      return false;
+    }
     ensureOffscreen().then(() => {
-      chrome.runtime.sendMessage({ ...msg, action: 'OFFSCREEN_DOWNLOAD' })
-        .catch(e => console.error('[nowFlow] offscreen msg error:', e.message));
-    });
+      // offscreen document는 chrome.runtime.sendMessage로 수신 가능
+      // (service worker → offscreen: runtime.sendMessage 사용)
+      chrome.runtime.sendMessage({
+        ...msg,
+        action: 'OFFSCREEN_DOWNLOAD',
+        _fromBackground: true
+      }).catch(e => console.error('[nowFlow] offscreen send error:', e.message));
+    }).catch(e => console.error('[nowFlow] ensureOffscreen error:', e.message));
     sendResponse({ ok: true });
     return true;
   }
 
-  // 결과 전달 (offscreen → sidepanel)
+  // ── SAVE_RESULT: offscreen → sidepanel 브로드캐스트 ──
   if (action === 'SAVE_RESULT') {
-    // 사이드패널로 브로드캐스트
-    chrome.runtime.sendMessage(msg).catch(() => {});
+    // 사이드패널(extension page)으로 broadcast
+    chrome.runtime.sendMessage({ ...msg, _fromBackground: true })
+      .catch(() => {});
     sendResponse({ ok: true });
     return true;
   }
 
-  // START 명령: content.js 주입 후 START 전달
+  // ── START: content.js 주입 후 START 전달 ──
   if (action === 'START') {
     (async () => {
       try {
+        // Fix: labs.google 도메인 체크 완화 (서브도메인/경로 무관하게 허용)
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tabs || !tabs[0]) { sendResponse({ ok: false, error: 'No active tab' }); return; }
-        const tab = tabs[0];
-        if (!tab.url || !tab.url.includes('labs.google')) {
-          sendResponse({ ok: false, error: 'Not a Google Flow tab' });
+        if (!tabs || !tabs[0]) {
+          sendResponse({ ok: false, error: 'No active tab' });
           return;
         }
-        await injectContent(tab.id);
+        const tab = tabs[0];
+        const url = tab.url || '';
+        if (!url.includes('labs.google') && !url.includes('flow')) {
+          sendResponse({ ok: false, error: `Not a Google Flow tab (url: ${url})` });
+          return;
+        }
+        const injectResult = await injectContent(tab.id);
+        if (!injectResult.ok) {
+          sendResponse({ ok: false, error: 'inject failed: ' + injectResult.error });
+          return;
+        }
+        // 주입 직후 약간 대기 (content.js 초기화 시간)
+        await new Promise(r => setTimeout(r, 300));
         await chrome.tabs.sendMessage(tab.id, msg);
         sendResponse({ ok: true });
       } catch (e) {
@@ -105,8 +133,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // PAUSE / RESUME / STOP / RESET → 현재 탭으로 전달
-  if (['PAUSE','RESUME','STOP','RESET'].includes(action)) {
+  // ── PAUSE / RESUME / STOP / RESET → 현재 탭으로 전달 ──
+  if (['PAUSE', 'RESUME', 'STOP', 'RESET'].includes(action)) {
     (async () => {
       try {
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -126,9 +154,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // ── 탭 업데이트 감지 ─────────────────────────────────────────────
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url && tab.url.includes('labs.google/fx/tools/flow')) {
+  if (changeInfo.status === 'complete' && tab.url && tab.url.includes('labs.google')) {
     console.log('[nowFlow] Google Flow tab detected:', tabId);
+    // 탭 업데이트 시 offscreen 준비
+    ensureOffscreen().catch(() => {});
   }
 });
 
-console.log('[nowFlow] background.js v8.0 loaded');
+console.log('[nowFlow] background.js v8.1 loaded');

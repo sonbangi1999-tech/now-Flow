@@ -1,11 +1,17 @@
-// now Flow v8.0 - offscreen.js
-// Blob 다운로드 처리 (Fix403: credentials 포함 + 직접 다운로드 폴백)
+// now Flow v8.1 - offscreen.js
+// Fix: _fromBackground 플래그로 무한루프 방지 / SAVE_RESULT relay 제거
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const action = msg.action || msg.type;
+
+  // offscreen이 처리할 메시지만 수신 (background에서 온 OFFSCREEN_DOWNLOAD)
   if (action !== 'OFFSCREEN_DOWNLOAD' && action !== 'offscreen_download') return false;
 
+  // _fromBackground 플래그가 없으면 무시 (무한루프 방지)
+  if (!msg._fromBackground) return false;
+
   handleDownload(msg).then(result => {
+    // SAVE_RESULT를 background로 전달 (background가 sidepanel에 relay)
     chrome.runtime.sendMessage({
       action: 'SAVE_RESULT',
       ok: result.ok,
@@ -31,38 +37,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function handleDownload(msg) {
   const filename = sanitizeFilename(msg.filename || `nowflow_${Date.now()}.png`);
 
-  // 방법1: bytes 배열로 Blob 생성
+  // 방법1: bytes 배열로 Blob 생성 (canvas 추출 경로)
   if (msg.bytes && msg.bytes.length > 0) {
     try {
       const blob = new Blob([new Uint8Array(msg.bytes)], { type: 'image/png' });
-      const url = URL.createObjectURL(blob);
-      const dlId = await startDownload(url, filename);
+      const blobUrl = URL.createObjectURL(blob);
+      const dlId = await startDownload(blobUrl, filename);
       await waitForDownload(dlId);
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(blobUrl);
       return { ok: true, filename };
     } catch (e) {
       console.warn('[nowFlow offscreen] bytes download failed:', e.message);
     }
   }
 
-  // 방법2: URL fetch with credentials
+  // 방법2: URL fetch with credentials (쿠키 포함, 403 우회)
   if (msg.url) {
     try {
-      const res = await fetch(msg.url, { credentials: 'include', cache: 'no-store' });
+      const res = await fetch(msg.url, {
+        credentials: 'include',
+        cache: 'no-store',
+        mode: 'cors'
+      });
       if (res.ok) {
         const buf = await res.arrayBuffer();
-        const blob = new Blob([buf], { type: 'image/png' });
-        const url = URL.createObjectURL(blob);
-        const dlId = await startDownload(url, filename);
+        const blob = new Blob([buf], { type: res.headers.get('content-type') || 'image/png' });
+        const blobUrl = URL.createObjectURL(blob);
+        const dlId = await startDownload(blobUrl, filename);
         await waitForDownload(dlId);
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(blobUrl);
         return { ok: true, filename };
       }
+      console.warn('[nowFlow offscreen] fetch response not ok:', res.status);
     } catch (e) {
       console.warn('[nowFlow offscreen] fetch download failed:', e.message);
     }
 
-    // 방법3: chrome.downloads 직접 (브라우저 세션 활용)
+    // 방법3: chrome.downloads 직접 다운로드 (브라우저 세션 쿠키 활용)
     try {
       const dlId = await startDownload(msg.url, filename);
       await waitForDownload(dlId);
@@ -118,6 +129,6 @@ function waitForDownload(dlId) {
 }
 
 function sanitizeFilename(name) {
-  // 폴더 구분자는 유지, 나머지 특수문자만 제거
-  return name.replace(/[<>:"|?*]/g, '_');
+  // 폴더 구분자(/)는 유지, 나머지 특수문자만 제거
+  return name.replace(/[<>:"|?*\\]/g, '_');
 }
